@@ -100,9 +100,11 @@ export const appNotificationDao = {
               if ((pkg.includes('toss') || pkg.includes('kakaopay')) && (title.includes('걸음') || content.includes('걸음') || title.includes('만보기'))) return;
               if (pkg.includes('toss') && (title.includes('악성') || content.includes('악성'))) return;
 
+              const isBookmarked = item.is_bookmarked || item.isBookmarked ? 1 : 0;
+
               try {
                 safeDbExecute(
-                  'INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, 0);',
+                  'INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, ?);',
                   [
                     item.id || `${Date.now()}_${Math.random()}`,
                     pkg,
@@ -111,6 +113,7 @@ export const appNotificationDao = {
                     item.big_text || '',
                     content,
                     item.post_time || '',
+                    isBookmarked,
                   ]
                 );
               } catch (err) {}

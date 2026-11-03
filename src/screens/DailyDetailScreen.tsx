@@ -22,8 +22,8 @@ import { TransactionModal } from '../components/transaction/TransactionModal';
 dayjs.extend(isSameOrAfter);
 
 export const DailyDetailScreen = ({ route, navigation }: any) => {
-  const initialDateStr = route?.params?.dateStr || dayjs().format('YYYY-MM-DD');
-  const [currentDateStr, setCurrentDateStr] = useState(initialDateStr);
+  const initialDateStr: string = route?.params?.dateStr || dayjs().format('YYYY-MM-DD');
+  const [currentDateStr, setCurrentDateStr] = useState<string>(initialDateStr);
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
@@ -39,26 +39,63 @@ export const DailyDetailScreen = ({ route, navigation }: any) => {
     }
   }, [route?.params?.dateStr]);
 
-  // 좌우 슬라이드(스와이프) 모션 감지: 좌(전날), 우(다음날) 이동
+  // 좌우 슬라이드(스와이프) 모션 감지: 좌->우(전날), 우->좌(다음날) 이동
+  const dailySwipeTriggeredRef = useRef(false);
   const dailyPanResponder = useRef(
     PanResponder.create({
+      onStartShouldSetPanResponderCapture: () => {
+        dailySwipeTriggeredRef.current = false;
+        return false;
+      },
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+        return (
+          Math.abs(gestureState.dx) > 20 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.3
+        );
+      },
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        return Math.abs(gestureState.dx) > 40 && Math.abs(gestureState.dy) < 30;
+        return (
+          Math.abs(gestureState.dx) > 20 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.3
+        );
+      },
+      onPanResponderTerminationRequest: (_, gestureState) => {
+        if (
+          Math.abs(gestureState.dx) > 15 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy)
+        ) {
+          return false;
+        }
+        return true;
       },
       onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dx < -50) {
-          // 오른쪽에서 왼쪽으로 스와이프 (다음날 이동)
-          const nextDay = dayjs(currentDateStr).add(1, 'day').format('YYYY-MM-DD');
-          setCurrentDateStr(nextDay);
-          if (navigation && typeof navigation.setParams === 'function') {
-            navigation.setParams({ dateStr: nextDay });
+        if (dailySwipeTriggeredRef.current) return;
+        if (
+          Math.abs(gestureState.dx) >= 35 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2
+        ) {
+          dailySwipeTriggeredRef.current = true;
+          if (gestureState.dx < 0) {
+            // 오른쪽에서 왼쪽으로 스와이프 (다음날 이동)
+            setCurrentDateStr((prev: string) => dayjs(prev).add(1, 'day').format('YYYY-MM-DD'));
+          } else {
+            // 왼쪽에서 오른쪽으로 스와이프 (전날 이동)
+            setCurrentDateStr((prev: string) => dayjs(prev).subtract(1, 'day').format('YYYY-MM-DD'));
           }
-        } else if (gestureState.dx > 50) {
-          // 왼쪽에서 오른쪽으로 스와이프 (전날 이동)
-          const prevDay = dayjs(currentDateStr).subtract(1, 'day').format('YYYY-MM-DD');
-          setCurrentDateStr(prevDay);
-          if (navigation && typeof navigation.setParams === 'function') {
-            navigation.setParams({ dateStr: prevDay });
+        }
+      },
+      onPanResponderTerminate: (_, gestureState) => {
+        if (dailySwipeTriggeredRef.current) return;
+        if (
+          Math.abs(gestureState.dx) >= 35 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2
+        ) {
+          dailySwipeTriggeredRef.current = true;
+          if (gestureState.dx < 0) {
+            setCurrentDateStr((prev: string) => dayjs(prev).add(1, 'day').format('YYYY-MM-DD'));
+          } else {
+            setCurrentDateStr((prev: string) => dayjs(prev).subtract(1, 'day').format('YYYY-MM-DD'));
           }
         }
       },

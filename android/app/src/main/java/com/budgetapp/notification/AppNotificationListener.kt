@@ -86,12 +86,6 @@ class AppNotificationListener : NotificationListenerService() {
         // 제외 대상 앱 알림 수집 즉시 원천 스킵
         if (isExcludedAppNotification(packageName, title, fullContent)) return
 
-        // 1. 수신된 모든 앱 푸시 원문을 파일 버퍼 & 로컬 SQLite DB(app_notifications_raw)에 이중 보관
-        saveRawNotification(packageName, title, text, bigText, fullContent, sbnObj.postTime)
-
-        // 2. DB에서 최근 예외 단어 규칙 로드
-        FinancialTextParser.loadExceptionsFromDb(this)
-
         // 3. 모든 카드사/금융 푸시 알림 실시간 결제 파싱 (PUSH 영역)
         val result = FinancialTextParser.parse(fullContent, sbnObj.postTime, "PUSH")
         if (result.isPayment) {
@@ -106,6 +100,9 @@ class AppNotificationListener : NotificationListenerService() {
                 createdAtStr = result.createdAtStr
             )
         }
+
+        // 1. 수신된 모든 앱 푸시 원문을 파일 버퍼 & 로컬 SQLite DB(app_notifications_raw)에 이중 보관
+        saveRawNotification(packageName, title, text, bigText, fullContent, sbnObj.postTime, result.isPayment)
     }
 
     private fun saveRawNotification(
@@ -114,7 +111,8 @@ class AppNotificationListener : NotificationListenerService() {
         text: String,
         bigText: String,
         fullContent: String,
-        postTimeMs: Long
+        postTimeMs: Long,
+        isPayment: Boolean
     ) {
         if (isExcludedAppNotification(packageName, title, fullContent)) return
 
@@ -139,6 +137,7 @@ class AppNotificationListener : NotificationListenerService() {
                 put("big_text", bigText)
                 put("raw_content", fullContent)
                 put("post_time", postTimeStr)
+                put("is_bookmarked", isPayment)
             }
 
             jsonArray.put(item)
@@ -201,9 +200,10 @@ class AppNotificationListener : NotificationListenerService() {
                 }
 
                 if (!isDup) {
+                    val bookmarkVal = if (isPayment) 1 else 0
                     db.execSQL(
-                        "INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, 0);",
-                        arrayOf(id, packageName, title, text, bigText, fullContent, postTimeStr)
+                        "INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
+                        arrayOf(id, packageName, title, text, bigText, fullContent, postTimeStr, bookmarkVal)
                     )
                 }
 
@@ -261,19 +261,11 @@ class AppNotificationListener : NotificationListenerService() {
                         // 제외 대상 앱 푸시 알림 스킵
                         if (listener.isExcludedAppNotification(packageName, title, fullContent)) continue
 
-                        // 수신함 결제 내역 실시간 동기화 실행 시 무조건 현재 떠 있는 모든 알림 목록을 보관
-                        listener.saveRawNotification(
-                            packageName,
-                            title,
-                            text,
-                            bigText,
-                            fullContent,
-                            postTime
-                        )
-
                         // 파싱 및 결제 이벤트 등록
+                        var isPayment = false
                         if (targetDateStr == "ALL" || postTime in startTime..endTime) {
                             val result = FinancialTextParser.parse(fullContent, postTime, "PUSH")
+                            isPayment = result.isPayment
                             if (result.isPayment) {
                                 FinancialParserModule.emitPaymentEvent(
                                     dateStr = result.dateStr,
@@ -288,6 +280,17 @@ class AppNotificationListener : NotificationListenerService() {
                                 count++
                             }
                         }
+
+                        // 수신함 결제 내역 실시간 동기화 실행 시 무조건 현재 떠 있는 모든 알림 목록을 보관
+                        listener.saveRawNotification(
+                            packageName,
+                            title,
+                            text,
+                            bigText,
+                            fullContent,
+                            postTime,
+                            isPayment
+                        )
                     }
                 }
             } catch (e: Exception) {

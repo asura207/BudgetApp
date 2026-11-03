@@ -149,23 +149,45 @@ export const backupService = {
         });
       }
 
-      // 4. 앱 푸시 알림 로그 복구
+      // 4. 앱 푸시 알림 로그 복구 (영구보관 is_bookmarked 체크 상태 완벽 복원)
       if (Array.isArray(data.rawAppNotifications)) {
         const db = getDb();
+        try {
+          db.execute('ALTER TABLE app_notifications_raw ADD COLUMN is_bookmarked BOOLEAN DEFAULT 0;');
+        } catch (e) {}
+
         data.rawAppNotifications.forEach((n) => {
           try {
+            const notifId = n.id || `${Date.now()}_${Math.random()}`;
+            const pkgName = n.packageName || (n as any).package_name || '';
+            const titleStr = n.title || '';
+            const textStr = n.text || '';
+            const bigTextStr = n.bigText || (n as any).big_text || '';
+            const rawContentStr = n.rawContent || (n as any).raw_content || '';
+            const postTimeStr = n.postTime || (n as any).post_time || '';
+            const isBookmarkedVal = n.isBookmarked || (n as any).is_bookmarked ? 1 : 0;
+
             db.execute(
-              'INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time) VALUES (?, ?, ?, ?, ?, ?, ?);',
+              'INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, ?);',
               [
-                n.id || `${Date.now()}_${Math.random()}`,
-                n.packageName || '',
-                n.title || '',
-                n.text || '',
-                n.bigText || '',
-                n.rawContent || '',
-                n.postTime || '',
+                notifId,
+                pkgName,
+                titleStr,
+                textStr,
+                bigTextStr,
+                rawContentStr,
+                postTimeStr,
+                isBookmarkedVal,
               ]
             );
+
+            // 이미 동일한 ID 또는 동일한 내용의 알림이 DB에 먼저 수록되어 있던 경우에도 백업본의 영구보관 체크 상태를 그대로 반영
+            if (isBookmarkedVal === 1) {
+              db.execute(
+                'UPDATE app_notifications_raw SET is_bookmarked = 1 WHERE id = ? OR (package_name = ? AND post_time = ? AND raw_content = ?);',
+                [notifId, pkgName, postTimeStr, rawContentStr]
+              );
+            }
           } catch (e) {
             // Ignore
           }

@@ -94,7 +94,11 @@ export const StatisticsScreen = () => {
       }, 0);
 
     let savings = mtxs
-      .filter((tx) => tx.categoryType === 'SAVINGS')
+      .filter(
+        (tx) =>
+          tx.categoryType === 'SAVINGS' &&
+          dayjs(tx.date).isSameOrBefore(dayjs(todayStr), 'day')
+      )
       .reduce((sum, tx) => sum + tx.amount, 0);
 
     // 2. 정기결제/적금 내역 반영 (시작일 이후 AND 오늘 날짜 이하만 누적)
@@ -235,12 +239,15 @@ export const StatisticsScreen = () => {
     return { list: result, totalMonthExpense };
   };
 
-  // 선택된 월의 적금/저축 합계 집계
+  // 선택된 월의 적금/저축 합계 집계 (조회 당일 포함 이전 일의 기록만 합산)
   const getSavingsStatsForMonth = (monthNum: number) => {
     const monthPrefix = `${selectedYear}-${String(monthNum).padStart(2, '0')}`;
     const daysInMonth = dayjs(monthPrefix, 'YYYY-MM').daysInMonth();
     const monthTxs = yearTransactions.filter(
-      (tx) => tx.date.startsWith(monthPrefix) && tx.categoryType === 'SAVINGS'
+      (tx) =>
+        tx.date.startsWith(monthPrefix) &&
+        tx.categoryType === 'SAVINGS' &&
+        dayjs(tx.date).isSameOrBefore(dayjs(todayStr), 'day')
     );
 
     const savingsMap: { [name: string]: number } = {};
@@ -297,7 +304,7 @@ export const StatisticsScreen = () => {
     return { list: result, totalMonthSavings };
   };
 
-  // 선택된 연도의 카드사별 지출 합계 집계
+  // 선택된 연도의 카드사별 지출 합계 집계 (오늘 날짜 이하 정기결제 포함)
   const getCardCompanyStatsForYear = (yearNum: number) => {
     const txs = transactionDao.getTransactionsByYear(String(yearNum));
     const expenseTxs = txs.filter((tx) => tx.categoryType === 'EXPENSE');
@@ -318,6 +325,47 @@ export const StatisticsScreen = () => {
       totalExpense += amountToUse;
     });
 
+    // 정기 결제 카드 지출 반영 (오늘 이하 날짜만)
+    recurringRules.forEach((rule) => {
+      if (rule.categoryType === 'EXPENSE') {
+        const ruleStartStr = rule.startDate || `${yearNum}-01-01`;
+        const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
+        const companyName =
+          rule.paymentType === 'CARD'
+            ? rule.cardCompany || '기타 카드'
+            : '💵 현금';
+
+        for (let m = 1; m <= 12; m++) {
+          const monthPrefix = `${yearNum}-${String(m).padStart(2, '0')}`;
+          const daysInMonth = dayjs(monthPrefix, 'YYYY-MM').daysInMonth();
+
+          for (let day = 1; day <= daysInMonth; day++) {
+            const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
+            let applies = false;
+
+            if (
+              dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
+              dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
+            ) {
+              if (repeatType === 'DAILY') {
+                applies = true;
+              } else if (repeatType === 'MONTHLY_DAY') {
+                applies = day === rule.dayOfMonth;
+              } else if (repeatType === 'WEEKLY_DAYS') {
+                const dayOfWeek = dayjs(rawDate).day();
+                applies = (rule.daysOfWeek || []).includes(dayOfWeek);
+              }
+            }
+
+            if (applies) {
+              companyMap[companyName] = (companyMap[companyName] || 0) + rule.amount;
+              totalExpense += rule.amount;
+            }
+          }
+        }
+      }
+    });
+
     const result = Object.keys(companyMap).map((company) => {
       const amount = companyMap[company];
       const percentage =
@@ -328,10 +376,14 @@ export const StatisticsScreen = () => {
     return { list: result, totalExpense };
   };
 
-  // 선택된 연도의 적금/저축 합계 집계
+  // 선택된 연도의 적금/저축 합계 집계 (조회 당일 포함 이전 일의 기록만 합산)
   const getSavingsStatsForYear = (yearNum: number) => {
     const txs = transactionDao.getTransactionsByYear(String(yearNum));
-    const savingsTxs = txs.filter((tx) => tx.categoryType === 'SAVINGS');
+    const savingsTxs = txs.filter(
+      (tx) =>
+        tx.categoryType === 'SAVINGS' &&
+        dayjs(tx.date).isSameOrBefore(dayjs(todayStr), 'day')
+    );
 
     const savingsMap: { [name: string]: number } = {};
     let totalSavings = 0;
@@ -340,6 +392,44 @@ export const StatisticsScreen = () => {
       const name = tx.merchant || '일반 적금';
       savingsMap[name] = (savingsMap[name] || 0) + tx.amount;
       totalSavings += tx.amount;
+    });
+
+    // 정기 적금/저축 내역 반영 (조회 당일 포함 이전 일의 기록만 합산)
+    recurringRules.forEach((rule) => {
+      if (rule.categoryType === 'SAVINGS') {
+        const ruleStartStr = rule.startDate || `${yearNum}-01-01`;
+        const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
+        const name = rule.merchant || '정기 적금';
+
+        for (let m = 1; m <= 12; m++) {
+          const monthPrefix = `${yearNum}-${String(m).padStart(2, '0')}`;
+          const daysInMonth = dayjs(monthPrefix, 'YYYY-MM').daysInMonth();
+
+          for (let day = 1; day <= daysInMonth; day++) {
+            const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
+            let applies = false;
+
+            if (
+              dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
+              dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
+            ) {
+              if (repeatType === 'DAILY') {
+                applies = true;
+              } else if (repeatType === 'MONTHLY_DAY') {
+                applies = day === rule.dayOfMonth;
+              } else if (repeatType === 'WEEKLY_DAYS') {
+                const dayOfWeek = dayjs(rawDate).day();
+                applies = (rule.daysOfWeek || []).includes(dayOfWeek);
+              }
+            }
+
+            if (applies) {
+              savingsMap[name] = (savingsMap[name] || 0) + rule.amount;
+              totalSavings += rule.amount;
+            }
+          }
+        }
+      }
     });
 
     const result = Object.keys(savingsMap).map((name) => {
@@ -352,10 +442,10 @@ export const StatisticsScreen = () => {
     return { list: result, totalSavings };
   };
 
-  // 연도별 비교 테이블용 데이터
+  // 연도별 비교 테이블용 데이터 (적금/저축 및 정기결제는 조회 당일 포함 이전 일의 기록만 합산)
   const yearlyComparisonData = availableYears.map((y) => {
     const txs = transactionDao.getTransactionsByYear(String(y));
-    const expense = txs
+    let expense = txs
       .filter((tx) => tx.categoryType === 'EXPENSE')
       .reduce((sum, tx) => {
         if (tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1) {
@@ -364,9 +454,51 @@ export const StatisticsScreen = () => {
         return sum + tx.amount;
       }, 0);
 
-    const savings = txs
-      .filter((tx) => tx.categoryType === 'SAVINGS')
+    let savings = txs
+      .filter(
+        (tx) =>
+          tx.categoryType === 'SAVINGS' &&
+          dayjs(tx.date).isSameOrBefore(dayjs(todayStr), 'day')
+      )
       .reduce((sum, tx) => sum + tx.amount, 0);
+
+    // 정기결제/적금 내역 반영 (시작일 이후 AND 조회 당일 포함 이전 일만 누적)
+    recurringRules.forEach((rule) => {
+      const ruleStartStr = rule.startDate || `${y}-01-01`;
+      const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
+
+      for (let m = 1; m <= 12; m++) {
+        const monthPrefix = `${y}-${String(m).padStart(2, '0')}`;
+        const daysInMonth = dayjs(monthPrefix, 'YYYY-MM').daysInMonth();
+
+        for (let day = 1; day <= daysInMonth; day++) {
+          const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
+          let applies = false;
+
+          if (
+            dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
+            dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
+          ) {
+            if (repeatType === 'DAILY') {
+              applies = true;
+            } else if (repeatType === 'MONTHLY_DAY') {
+              applies = day === rule.dayOfMonth;
+            } else if (repeatType === 'WEEKLY_DAYS') {
+              const dayOfWeek = dayjs(rawDate).day();
+              applies = (rule.daysOfWeek || []).includes(dayOfWeek);
+            }
+          }
+
+          if (applies) {
+            if (rule.categoryType === 'EXPENSE') {
+              expense += rule.amount;
+            } else if (rule.categoryType === 'SAVINGS') {
+              savings += rule.amount;
+            }
+          }
+        }
+      }
+    });
 
     return { year: `${y}년`, yearNum: y, expense, savings };
   });

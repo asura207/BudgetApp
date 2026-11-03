@@ -181,3 +181,15 @@
   - `clearAppNotificationsBuffer(targetId)` 네이티브 모듈 연동으로 푸시 로그 삭제 후 재동기화 시 삭제된 로그가 재수록되지 않고 완벽하게 제거됨.
 - **주간뷰 / 일간뷰 좌우 슬라이드(스와이프) 제스처 이동**:
   - `PanResponder`를 도입하여 주간뷰(오른쪽 스와이프=지난주, 왼쪽 스와이프=다음주) 및 일간뷰(오른쪽 스와이프=전날, 왼쪽 스와이프=다음날) 터치 슬라이드 이동 완벽 연동.
+
+
+#### 4. 통계 > 연도별 비교 적금/저축 합계 누락 수정 및 당일 이하 합산 규칙 적용 (2026-10 반영 완료)
+- **연도별 비교(`StatisticsScreen.tsx`) 적금/저축 및 정기결제 합산 보완**:
+  - `yearlyComparisonData`, `getSavingsStatsForYear`, `getCardCompanyStatsForYear`에서 `transactions` 테이블뿐만 아니라 `recurring_rules`(정기 결제/적금)의 연간(1~12월) 도래 내역을 함께 집계하도록 수정하여 연도별 비교 탭에서 적금/저축 합계가 `0`으로 표기되던 현상 해결.
+- **적금/저축 합계 조회 당일(`todayStr`) 포함 이전 일 기록만 합산**:
+  - 일반 거래(`transactions`) 및 정기 적금(`recurring_rules`) 모두 시작일 이후부터 **조회 당일 포함 이전 일(`<= todayStr`)**의 기록만 합산되도록 필터링 적용.
+- **월간/주간/일간뷰 좌우 슬라이드(스와이프) 제스처 안정화 보완**:
+  - `DailyDetailScreen.tsx`: `useRef` 내부의 `currentDateStr` 클로저 고착(Stale Closure)으로 인해 2회차 이상 연속 스와이프가 동작하지 않던 버그를 함수형 상태 업데이트(`setCurrentDateStr((prev) => ...)`)로 해결.
+  - `MainCalendarScreen.tsx` & `DailyDetailScreen.tsx`: 날짜 셀(`TouchableOpacity`), 거래 카드(`Pressable`), 스크롤 뷰(`ScrollView`/`FlatList`) 위에서 슬라이드할 때 터치가 뺏기거나 취소되지 않도록 `onMoveShouldSetPanResponderCapture`, `onPanResponderTerminationRequest`, `onPanResponderTerminate`를 모두 적용하고, 월간 뷰 달력(`Calendar`)에도 `monthlyPanResponder` 및 `key={currentYearMonth}` 동기화를 추가하여 좌우 월 이동 스와이프를 완벽 지원.
+- **백업 파일 복구 시 앱 푸시 로그 영구보관(`is_bookmarked`) 체크 상태 복원 보완**:
+  - `backupService.ts`: `restoreFromBackupJson`에서 `app_notifications_raw` 테이블 인서트 시 누락되어 있던 `is_bookmarked` 컬럼 값을 함께 저장하고, 이미 DB에 동일 알림이 존재하던 경우에도 `isBookmarked === true`인 항목은 `UPDATE ... SET is_bookmarked = 1`로 갱신하여 영구보관 체크 상태가 해제되지 않고 그대로 복원되도록 수정.

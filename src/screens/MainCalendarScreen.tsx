@@ -97,19 +97,135 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
   // 주간 뷰를 위한 선택된 주 기준 날짜
   const [selectedWeekDate, setSelectedWeekDate] = useState(dayjs());
 
-  // 주간 뷰 전용 좌우 스와이프 제스처 (좌: 지난주, 우: 다음주 이동)
-  const weeklyPanResponder = useRef(
+  // 월간 뷰 전용 좌우 스와이프 제스처 (좌->우: 지난달, 우->좌: 다음달 이동)
+  const monthlySwipeTriggeredRef = useRef(false);
+  const monthlyPanResponder = useRef(
     PanResponder.create({
+      onStartShouldSetPanResponderCapture: () => {
+        monthlySwipeTriggeredRef.current = false;
+        return false;
+      },
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+        return (
+          Math.abs(gestureState.dx) > 20 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.3
+        );
+      },
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        return Math.abs(gestureState.dx) > 40 && Math.abs(gestureState.dy) < 30;
+        return (
+          Math.abs(gestureState.dx) > 20 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.3
+        );
+      },
+      onPanResponderTerminationRequest: (_, gestureState) => {
+        if (
+          Math.abs(gestureState.dx) > 15 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy)
+        ) {
+          return false;
+        }
+        return true;
       },
       onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dx < -50) {
-          // 오른쪽에서 왼쪽으로 스와이프 (다음 주)
-          setSelectedWeekDate((prev) => prev.add(1, 'week'));
-        } else if (gestureState.dx > 50) {
-          // 왼쪽에서 오른쪽으로 스와이프 (지난 주)
-          setSelectedWeekDate((prev) => prev.subtract(1, 'week'));
+        if (monthlySwipeTriggeredRef.current) return;
+        if (
+          Math.abs(gestureState.dx) >= 35 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2
+        ) {
+          monthlySwipeTriggeredRef.current = true;
+          if (gestureState.dx < 0) {
+            // 오른쪽에서 왼쪽으로 스와이프 (다음 달)
+            setCurrentYearMonth((prev) =>
+              dayjs(`${prev}-01`, 'YYYY-MM-DD').add(1, 'month').format('YYYY-MM')
+            );
+          } else {
+            // 왼쪽에서 오른쪽으로 스와이프 (지난 달)
+            setCurrentYearMonth((prev) =>
+              dayjs(`${prev}-01`, 'YYYY-MM-DD').subtract(1, 'month').format('YYYY-MM')
+            );
+          }
+        }
+      },
+      onPanResponderTerminate: (_, gestureState) => {
+        if (monthlySwipeTriggeredRef.current) return;
+        if (
+          Math.abs(gestureState.dx) >= 35 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2
+        ) {
+          monthlySwipeTriggeredRef.current = true;
+          if (gestureState.dx < 0) {
+            setCurrentYearMonth((prev) =>
+              dayjs(`${prev}-01`, 'YYYY-MM-DD').add(1, 'month').format('YYYY-MM')
+            );
+          } else {
+            setCurrentYearMonth((prev) =>
+              dayjs(`${prev}-01`, 'YYYY-MM-DD').subtract(1, 'month').format('YYYY-MM')
+            );
+          }
+        }
+      },
+    })
+  ).current;
+
+  // 주간 뷰 전용 좌우 스와이프 제스처 (좌->우: 지난주, 우->좌: 다음주 이동)
+  const weeklySwipeTriggeredRef = useRef(false);
+  const weeklyPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponderCapture: () => {
+        weeklySwipeTriggeredRef.current = false;
+        return false;
+      },
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+        return (
+          Math.abs(gestureState.dx) > 20 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.3
+        );
+      },
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return (
+          Math.abs(gestureState.dx) > 20 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.3
+        );
+      },
+      onPanResponderTerminationRequest: (_, gestureState) => {
+        if (
+          Math.abs(gestureState.dx) > 15 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy)
+        ) {
+          return false;
+        }
+        return true;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (weeklySwipeTriggeredRef.current) return;
+        if (
+          Math.abs(gestureState.dx) >= 35 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2
+        ) {
+          weeklySwipeTriggeredRef.current = true;
+          if (gestureState.dx < 0) {
+            // 오른쪽에서 왼쪽으로 스와이프 (다음 주)
+            setSelectedWeekDate((prev) => prev.add(1, 'week'));
+          } else {
+            // 왼쪽에서 오른쪽으로 스와이프 (지난 주)
+            setSelectedWeekDate((prev) => prev.subtract(1, 'week'));
+          }
+        }
+      },
+      onPanResponderTerminate: (_, gestureState) => {
+        if (weeklySwipeTriggeredRef.current) return;
+        if (
+          Math.abs(gestureState.dx) >= 35 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2
+        ) {
+          weeklySwipeTriggeredRef.current = true;
+          if (gestureState.dx < 0) {
+            setSelectedWeekDate((prev) => prev.add(1, 'week'));
+          } else {
+            setSelectedWeekDate((prev) => prev.subtract(1, 'week'));
+          }
         }
       },
     })
@@ -371,71 +487,75 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
       />
 
       {viewMode === 'MONTHLY' ? (
-        <ScrollView style={{ flex: 1 }}>
-          <Calendar
-            current={`${currentYearMonth}-01`}
-            onMonthChange={(month: any) => {
-              const ym = `${month.year}-${String(month.month).padStart(2, '0')}`;
-              setCurrentYearMonth(ym);
-            }}
-            dayComponent={customDayComponent}
-            theme={{
-              backgroundColor: '#FFFFFF',
-              calendarBackground: '#FFFFFF',
-              textSectionTitleColor: '#666666',
-              selectedDayBackgroundColor: '#2196F3',
-              todayTextColor: '#2196F3',
-              arrowColor: '#2196F3',
-            }}
-          />
+        <View style={{ flex: 1 }} {...monthlyPanResponder.panHandlers}>
+          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+            <Calendar
+              key={currentYearMonth}
+              initialDate={`${currentYearMonth}-01`}
+              current={`${currentYearMonth}-01`}
+              onMonthChange={(month: any) => {
+                const ym = `${month.year}-${String(month.month).padStart(2, '0')}`;
+                setCurrentYearMonth(ym);
+              }}
+              dayComponent={customDayComponent}
+              theme={{
+                backgroundColor: '#FFFFFF',
+                calendarBackground: '#FFFFFF',
+                textSectionTitleColor: '#666666',
+                selectedDayBackgroundColor: '#2196F3',
+                todayTextColor: '#2196F3',
+                arrowColor: '#2196F3',
+              }}
+            />
 
-          {/* 월간 뷰 하단: 이번 달 총 할부 청구금액 카드 & 🔍 상세 모달 버튼 & 수동 기입 영역 */}
-          <View style={styles.installmentSummaryCard}>
-            <View style={styles.installmentHeaderRow}>
-              <Text style={styles.installmentCardTitle}>💳 이번 달 총 할부 청구금액</Text>
-              <TouchableOpacity
-                style={styles.magnifierBtn}
-                activeOpacity={0.7}
-                delayPressIn={0}
-                onPress={() => setInstallmentModalVisible(true)}
-              >
-                <Text style={styles.magnifierBtnText}>🔍 상세보기</Text>
-              </TouchableOpacity>
+            {/* 월간 뷰 하단: 이번 달 총 할부 청구금액 카드 & 🔍 상세 모달 버튼 & 수동 기입 영역 */}
+            <View style={styles.installmentSummaryCard}>
+              <View style={styles.installmentHeaderRow}>
+                <Text style={styles.installmentCardTitle}>💳 이번 달 총 할부 청구금액</Text>
+                <TouchableOpacity
+                  style={styles.magnifierBtn}
+                  activeOpacity={0.7}
+                  delayPressIn={0}
+                  onPress={() => setInstallmentModalVisible(true)}
+                >
+                  <Text style={styles.magnifierBtnText}>🔍 상세보기</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.installmentCardAmount}>
+                {thisMonthInstallmentTotal.toLocaleString()} 원
+              </Text>
+
+              <View style={styles.manualInputRow}>
+                <Text style={styles.manualInputLabel}>사용자 추가 기입:</Text>
+                <TextInput
+                  style={styles.manualInput}
+                  placeholder="0"
+                  keyboardType="numeric"
+                  value={manualInstallmentStr}
+                  onChangeText={(text) => setManualInstallmentStr(formatNumberWithComma(text))}
+                  disableFullscreenUI={true}
+                />
+                <Text style={styles.unitText}>원</Text>
+                <TouchableOpacity
+                  style={styles.manualSaveBtn}
+                  activeOpacity={0.7}
+                  delayPressIn={0}
+                  onPress={handleSaveManualInstallment}
+                >
+                  <Text style={styles.manualSaveBtnText}>저장</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-
-            <Text style={styles.installmentCardAmount}>
-              {thisMonthInstallmentTotal.toLocaleString()} 원
-            </Text>
-
-            <View style={styles.manualInputRow}>
-              <Text style={styles.manualInputLabel}>사용자 추가 기입:</Text>
-              <TextInput
-                style={styles.manualInput}
-                placeholder="0"
-                keyboardType="numeric"
-                value={manualInstallmentStr}
-                onChangeText={(text) => setManualInstallmentStr(formatNumberWithComma(text))}
-                disableFullscreenUI={true}
-              />
-              <Text style={styles.unitText}>원</Text>
-              <TouchableOpacity
-                style={styles.manualSaveBtn}
-                activeOpacity={0.7}
-                delayPressIn={0}
-                onPress={handleSaveManualInstallment}
-              >
-                <Text style={styles.manualSaveBtnText}>저장</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </ScrollView>
+          </ScrollView>
+        </View>
       ) : (
-        <ScrollView
-          style={styles.weeklyScrollView}
-          contentContainerStyle={styles.weeklyContent}
-          keyboardShouldPersistTaps="always"
-          {...weeklyPanResponder.panHandlers}
-        >
+        <View style={{ flex: 1 }} {...weeklyPanResponder.panHandlers}>
+          <ScrollView
+            style={styles.weeklyScrollView}
+            contentContainerStyle={styles.weeklyContent}
+            keyboardShouldPersistTaps="always"
+          >
           {/* 주간 이동 컨트롤러 */}
           <View style={styles.weekHeader}>
             <TouchableOpacity
@@ -553,7 +673,8 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
               </Pressable>
             );
           })}
-        </ScrollView>
+          </ScrollView>
+        </View>
       )}
 
       {/* 할부 내역 🔍 상세 모달 */}
