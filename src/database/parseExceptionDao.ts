@@ -1,4 +1,4 @@
-import { getDb } from './db';
+import { safeDbExecute } from './db';
 
 export interface ParseException {
   id: string;
@@ -10,8 +10,7 @@ export interface ParseException {
 
 export const parseExceptionDao = {
   getAllExceptions(): ParseException[] {
-    const db = getDb();
-    const result = db.execute('SELECT * FROM parse_exceptions ORDER BY created_at ASC;');
+    const result = safeDbExecute('SELECT * FROM parse_exceptions ORDER BY created_at ASC;');
     const rows = result.rows?._array || [];
     return rows.map((r: any) => ({
       id: r.id,
@@ -23,11 +22,10 @@ export const parseExceptionDao = {
   },
 
   insertException(keyword: string, applyPush: boolean, applySms: boolean): boolean {
-    const db = getDb();
     const trimmed = keyword.trim();
     if (!trimmed) return false;
     try {
-      db.execute(
+      safeDbExecute(
         'INSERT OR REPLACE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES (?, ?, ?, ?);',
         [String(Date.now()), trimmed, applyPush ? 1 : 0, applySms ? 1 : 0]
       );
@@ -38,11 +36,10 @@ export const parseExceptionDao = {
   },
 
   updateException(id: string, keyword: string, applyPush: boolean, applySms: boolean): boolean {
-    const db = getDb();
     const trimmed = keyword.trim();
     if (!trimmed) return false;
     try {
-      db.execute(
+      safeDbExecute(
         'UPDATE parse_exceptions SET keyword = ?, apply_push = ?, apply_sms = ? WHERE id = ?;',
         [trimmed, applyPush ? 1 : 0, applySms ? 1 : 0, id]
       );
@@ -53,7 +50,6 @@ export const parseExceptionDao = {
   },
 
   deleteException(id: string): void {
-    const db = getDb();
-    db.execute('DELETE FROM parse_exceptions WHERE id = ?;', [id]);
+    safeDbExecute('DELETE FROM parse_exceptions WHERE id = ?;', [id]);
   },
 };

@@ -18,7 +18,7 @@ import { holidayDao } from '../database/holidayDao';
 import { parseExceptionDao } from '../database/parseExceptionDao';
 import { appNotificationDao, AppNotificationRaw } from '../database/appNotificationDao';
 import { Transaction, RecurringRule, Holiday } from '../types/budget';
-import { getDb } from '../database/db';
+import { getDb, safeDbExecute } from '../database/db';
 
 const { SmsHistoryParserModule } = NativeModules;
 
@@ -151,9 +151,8 @@ export const backupService = {
 
       // 4. 앱 푸시 알림 로그 복구 (영구보관 is_bookmarked 체크 상태 완벽 복원)
       if (Array.isArray(data.rawAppNotifications)) {
-        const db = getDb();
         try {
-          db.execute('ALTER TABLE app_notifications_raw ADD COLUMN is_bookmarked BOOLEAN DEFAULT 0;');
+          safeDbExecute('ALTER TABLE app_notifications_raw ADD COLUMN is_bookmarked BOOLEAN DEFAULT 0;');
         } catch (e) {}
 
         data.rawAppNotifications.forEach((n) => {
@@ -167,8 +166,8 @@ export const backupService = {
             const postTimeStr = n.postTime || (n as any).post_time || '';
             const isBookmarkedVal = n.isBookmarked || (n as any).is_bookmarked ? 1 : 0;
 
-            db.execute(
-              'INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, ?);',
+            safeDbExecute(
+              'INSERT OR REPLACE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, ?);',
               [
                 notifId,
                 pkgName,

@@ -1,16 +1,15 @@
 import { DeviceEventEmitter } from 'react-native';
 import dayjs from 'dayjs';
-import { getDb } from './db';
+import { safeDbExecute } from './db';
 import { RecurringRule, RepeatType } from '../types/budget';
 
 export const recurringDao = {
   insertRecurringRule(rule: RecurringRule): void {
-    const db = getDb();
     const startDate = rule.startDate || dayjs().format('YYYY-MM-DD');
     const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
     const daysOfWeekJson = JSON.stringify(rule.daysOfWeek || []);
 
-    db.execute(
+    safeDbExecute(
       `INSERT INTO recurring_rules (id, day_of_month, is_daily, repeat_type, days_of_week, start_date, category_type, amount, merchant, payment_type, card_company, installment_type)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       [
@@ -32,12 +31,11 @@ export const recurringDao = {
   },
 
   updateRecurringRule(rule: RecurringRule): void {
-    const db = getDb();
     const startDate = rule.startDate || dayjs().format('YYYY-MM-DD');
     const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
     const daysOfWeekJson = JSON.stringify(rule.daysOfWeek || []);
 
-    db.execute(
+    safeDbExecute(
       `UPDATE recurring_rules
        SET day_of_month = ?, is_daily = ?, repeat_type = ?, days_of_week = ?, start_date = ?, category_type = ?, amount = ?, merchant = ?, payment_type = ?, card_company = ?, installment_type = ?
        WHERE id = ?;`,
@@ -60,14 +58,12 @@ export const recurringDao = {
   },
 
   deleteRecurringRule(id: string): void {
-    const db = getDb();
-    db.execute('DELETE FROM recurring_rules WHERE id = ?;', [id]);
+    safeDbExecute('DELETE FROM recurring_rules WHERE id = ?;', [id]);
     DeviceEventEmitter.emit('TRANSACTION_UPDATED');
   },
 
   getAllRecurringRules(): RecurringRule[] {
-    const db = getDb();
-    const result = db.execute('SELECT * FROM recurring_rules ORDER BY day_of_month ASC;');
+    const result = safeDbExecute('SELECT * FROM recurring_rules ORDER BY day_of_month ASC;');
     const rows = result.rows?._array || [];
     return rows.map((row: any) => {
       let daysOfWeek: number[] = [];

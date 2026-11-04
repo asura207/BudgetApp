@@ -1,12 +1,10 @@
 import { DeviceEventEmitter } from 'react-native';
-import { getDb } from './db';
+import { safeDbExecute } from './db';
 import { Transaction } from '../types/budget';
 import { parseExceptionDao } from './parseExceptionDao';
 
 export const transactionDao = {
   insertTransaction(tx: Transaction): void {
-    const db = getDb();
-
     // 예외 처리 관리 DB(parse_exceptions)에서 동적 키워드 리스트를 읽어와 파싱 예외 처리 (applySms가 true인 예외 단어만 차단)
     const exceptions = parseExceptionDao.getAllExceptions();
     const isExcluded = exceptions.some(
@@ -19,7 +17,7 @@ export const transactionDao = {
 
     // 중복 체크: 시분초(created_at) OR 날짜(date), 사용처(merchant), 금액(amount)이 동일한 기존 기록이 있는지 확인
     if (tx.createdAt) {
-      const dupCheck = db.execute(
+      const dupCheck = safeDbExecute(
         'SELECT COUNT(*) as count FROM transactions WHERE merchant = ? AND amount = ? AND created_at = ?;',
         [tx.merchant, tx.amount, tx.createdAt]
       );
@@ -31,7 +29,7 @@ export const transactionDao = {
         return;
       }
     } else {
-      const dupCheck = db.execute(
+      const dupCheck = safeDbExecute(
         'SELECT COUNT(*) as count FROM transactions WHERE merchant = ? AND amount = ? AND date = ?;',
         [tx.merchant, tx.amount, tx.date]
       );
@@ -45,7 +43,7 @@ export const transactionDao = {
     }
 
     if (tx.createdAt) {
-      db.execute(
+      safeDbExecute(
         `INSERT INTO transactions (id, date, category_type, amount, merchant, payment_type, card_company, installment_type, installment_months, is_recurring, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
         [
@@ -63,7 +61,7 @@ export const transactionDao = {
         ]
       );
     } else {
-      db.execute(
+      safeDbExecute(
         `INSERT INTO transactions (id, date, category_type, amount, merchant, payment_type, card_company, installment_type, installment_months, is_recurring)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
         [
@@ -84,8 +82,7 @@ export const transactionDao = {
   },
 
   updateTransaction(tx: Transaction): void {
-    const db = getDb();
-    db.execute(
+    safeDbExecute(
       `UPDATE transactions
        SET date = ?, category_type = ?, amount = ?, merchant = ?, payment_type = ?, card_company = ?, installment_type = ?, installment_months = ?, is_recurring = ?
        WHERE id = ?;`,
@@ -106,13 +103,11 @@ export const transactionDao = {
   },
 
   deleteTransaction(id: string): void {
-    const db = getDb();
-    db.execute('DELETE FROM transactions WHERE id = ?;', [id]);
+    safeDbExecute('DELETE FROM transactions WHERE id = ?;', [id]);
     DeviceEventEmitter.emit('TRANSACTION_UPDATED');
   },
 
   deleteTransactionsByKeyword(keyword: string): number {
-    const db = getDb();
     const trimmed = keyword.trim();
     if (!trimmed) return 0;
 
@@ -125,7 +120,7 @@ export const transactionDao = {
     }
 
     try {
-      const res = db.execute('DELETE FROM transactions WHERE merchant LIKE ? OR card_company LIKE ?;', [
+      const res = safeDbExecute('DELETE FROM transactions WHERE merchant LIKE ? OR card_company LIKE ?;', [
         `%${trimmed}%`,
         `%${trimmed}%`,
       ]);
@@ -137,7 +132,6 @@ export const transactionDao = {
   },
 
   purgeAllExceptionMatchedTransactions(): number {
-    const db = getDb();
     const parseExceptions = parseExceptionDao.getAllExceptions();
     let totalPurged = 0;
 
@@ -145,7 +139,7 @@ export const transactionDao = {
       // applySms가 true인 예외 단어만 SMS 거래 내역에서 삭제 (applySms가 false인 네이버페이는 보존)
       if (e.keyword && e.keyword.trim() && e.applySms) {
         try {
-          const res = db.execute(
+          const res = safeDbExecute(
             'DELETE FROM transactions WHERE merchant LIKE ? OR card_company LIKE ?;',
             [`%${e.keyword.trim()}%`, `%${e.keyword.trim()}%`]
           );
@@ -162,8 +156,7 @@ export const transactionDao = {
   },
 
   getTransactionsByDate(dateStr: string): Transaction[] {
-    const db = getDb();
-    const result = db.execute(
+    const result = safeDbExecute(
       'SELECT * FROM transactions WHERE date = ? ORDER BY created_at DESC;',
       [dateStr]
     );
@@ -185,8 +178,7 @@ export const transactionDao = {
   },
 
   getTransactionsByMonth(yearMonthStr: string): Transaction[] {
-    const db = getDb();
-    const result = db.execute(
+    const result = safeDbExecute(
       'SELECT * FROM transactions WHERE date LIKE ? ORDER BY date ASC;',
       [`${yearMonthStr}%`]
     );
@@ -208,8 +200,7 @@ export const transactionDao = {
   },
 
   getTransactionsByYear(yearStr: string): Transaction[] {
-    const db = getDb();
-    const result = db.execute(
+    const result = safeDbExecute(
       'SELECT * FROM transactions WHERE date LIKE ? ORDER BY date ASC;',
       [`${yearStr}%`]
     );
@@ -231,8 +222,7 @@ export const transactionDao = {
   },
 
   getAllInstallmentTransactions(): Transaction[] {
-    const db = getDb();
-    const result = db.execute(
+    const result = safeDbExecute(
       "SELECT * FROM transactions WHERE category_type = 'EXPENSE' AND installment_type = 'INSTALLMENT' AND installment_months > 1 ORDER BY date ASC;"
     );
 

@@ -1,10 +1,9 @@
-import { getDb } from './db';
+import { safeDbExecute } from './db';
 import { Holiday } from '../types/budget';
 
 export const holidayDao = {
   upsertHoliday(h: Holiday): void {
-    const db = getDb();
-    db.execute(
+    safeDbExecute(
       `INSERT INTO holidays (locdate, date_name, is_holiday, is_custom)
        VALUES (?, ?, ?, ?)
        ON CONFLICT(locdate) DO UPDATE SET
@@ -17,13 +16,11 @@ export const holidayDao = {
   },
 
   deleteCustomHoliday(locdate: string): void {
-    const db = getDb();
-    db.execute('DELETE FROM holidays WHERE locdate = ? AND is_custom = 1;', [locdate]);
+    safeDbExecute('DELETE FROM holidays WHERE locdate = ? AND is_custom = 1;', [locdate]);
   },
 
   getAllCustomHolidays(): Holiday[] {
-    const db = getDb();
-    const result = db.execute(
+    const result = safeDbExecute(
       'SELECT * FROM holidays WHERE is_custom = 1 ORDER BY locdate DESC;'
     );
     const rows = result.rows?._array || [];
@@ -37,16 +34,14 @@ export const holidayDao = {
   },
 
   updateCustomHoliday(oldLocdate: string, newHoliday: Holiday): void {
-    const db = getDb();
     if (oldLocdate !== newHoliday.locdate) {
-      db.execute('DELETE FROM holidays WHERE locdate = ? AND is_custom = 1;', [oldLocdate]);
+      safeDbExecute('DELETE FROM holidays WHERE locdate = ? AND is_custom = 1;', [oldLocdate]);
     }
     this.upsertHoliday(newHoliday);
   },
 
   getHolidaysByYear(yearStr: string): Holiday[] {
-    const db = getDb();
-    const result = db.execute(
+    const result = safeDbExecute(
       'SELECT * FROM holidays WHERE locdate LIKE ? ORDER BY locdate ASC;',
       [`${yearStr}%`]
     );
@@ -61,8 +56,7 @@ export const holidayDao = {
   },
 
   isHoliday(dateStr: string): boolean {
-    const db = getDb();
-    const result = db.execute(
+    const result = safeDbExecute(
       'SELECT is_holiday FROM holidays WHERE locdate = ? LIMIT 1;',
       [dateStr]
     );
