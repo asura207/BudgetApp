@@ -76,14 +76,14 @@ class PostgresBackupModule(private val reactContext: ReactApplicationContext) : 
     fun backupToRemoteDb(userKey: String, jsonData: String, promise: Promise) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val success = PostgresBackupWorker.performBackupWithJson(userKey, jsonData)
-                if (success) {
+                val result = PostgresBackupWorker.performBackupWithJson(userKey, jsonData)
+                if (result == "SUCCESS") {
                     promise.resolve(true)
                 } else {
-                    promise.reject("BACKUP_ERROR", "Failed to execute backup")
+                    promise.reject("BACKUP_ERROR", result)
                 }
             } catch (e: Throwable) {
-                promise.reject("BACKUP_ERROR", e.message, e)
+                promise.reject("BACKUP_ERROR", e.toString())
             }
         }
     }

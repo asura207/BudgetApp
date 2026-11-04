@@ -184,7 +184,7 @@ class PostgresBackupWorker(appContext: Context, workerParams: WorkerParameters) 
             }
         }
 
-        fun performBackupWithJson(userKey: String, jsonData: String): Boolean {
+        fun performBackupWithJson(userKey: String, jsonData: String): String {
             var conn: Connection? = null
             try {
                 conn = getConnection()
@@ -333,11 +333,11 @@ class PostgresBackupWorker(appContext: Context, workerParams: WorkerParameters) 
                 }
 
                 conn.commit()
-                return true
+                return "SUCCESS"
             } catch (e: Throwable) {
                 conn?.rollback()
                 android.util.Log.e("PostgresBackupWorker", "JSON Backup Error", e)
-                return false
+                return e.toString()
             } finally {
                 try { conn?.close() } catch (e: Exception) {}
             }
