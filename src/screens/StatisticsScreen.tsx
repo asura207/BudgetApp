@@ -594,6 +594,36 @@ export const StatisticsScreen = () => {
       {/* 1. 월별 통계 뷰 */}
       {activeTab === 'MONTHLY' && (
         <View>
+          {/* 1~12월 스크롤형 탭 */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.monthScrollTab}
+            contentContainerStyle={styles.monthScrollContent}
+          >
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+              <TouchableOpacity
+                key={m}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                style={[
+                  styles.monthChip,
+                  selectedMonth === m && styles.selectedMonthChip,
+                ]}
+                onPress={() => setSelectedMonth(m)}
+              >
+                <Text
+                  style={[
+                    styles.monthChipText,
+                    selectedMonth === m && styles.selectedMonthChipText,
+                  ]}
+                >
+                  {m}월
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
           {/* 월별 예산, 사용한 금액, 잔액 요약 카드 */}
           <View style={styles.budgetSummaryCard}>
             <Text style={styles.budgetSummaryTitle}>
@@ -687,39 +717,9 @@ export const StatisticsScreen = () => {
             </View>
           </View>
 
-          {/* 하단 영역 1: 1~12월 선택 탭 & 카드사별 지출 표 */}
+          {/* 하단 영역 1: 카드사별 지출 표 */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>💳 {selectedMonth}월 카드사별 지출 합계</Text>
-
-            {/* 1~12월 스크롤형 탭 */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.monthScrollTab}
-              contentContainerStyle={styles.monthScrollContent}
-            >
-              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                <TouchableOpacity
-                  key={m}
-                  activeOpacity={0.7}
-                  delayPressIn={0}
-                  style={[
-                    styles.monthChip,
-                    selectedMonth === m && styles.selectedMonthChip,
-                  ]}
-                  onPress={() => setSelectedMonth(m)}
-                >
-                  <Text
-                    style={[
-                      styles.monthChipText,
-                      selectedMonth === m && styles.selectedMonthChipText,
-                    ]}
-                  >
-                    {m}월
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
 
             {/* 카드사별 사용금액 표 */}
             <View style={styles.tableHeader}>
