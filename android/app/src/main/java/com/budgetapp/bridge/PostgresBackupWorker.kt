@@ -109,8 +109,8 @@ class PostgresBackupWorker(appContext: Context, workerParams: WorkerParameters) 
                     stmt.close()
                 }
 
-                // 4. App Notifications
-                sqliteDb.rawQuery("SELECT * FROM app_notifications_raw", null)?.use { rs ->
+                // 4. App Notifications (보관된 푸시 알림만 백업)
+                sqliteDb.rawQuery("SELECT * FROM app_notifications_raw WHERE is_bookmarked = 1", null)?.use { rs ->
                     val stmt = conn.prepareStatement("INSERT INTO app_notifications_raw (user_key, id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
                     while (rs.moveToNext()) {
                         stmt.setString(1, userKey)

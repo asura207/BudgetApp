@@ -135,7 +135,7 @@ export const backupService = {
       }
 
       if (NativeModules.PostgresBackupModule && typeof NativeModules.PostgresBackupModule.backupToRemoteDb === 'function') {
-        await NativeModules.PostgresBackupModule.backupToRemoteDb(userKey, jsonString);
+        await NativeModules.PostgresBackupModule.backupToRemoteDb(userKey);
         return { success: true, message: '원격 DB에 백업이 완료되었습니다.' };
       } else {
         return { success: false, message: '네이티브 백업 모듈을 찾을 수 없습니다.' };
