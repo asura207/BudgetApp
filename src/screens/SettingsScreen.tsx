@@ -331,7 +331,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             {isSyncing ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.syncBtnText}>📄 로컬 파일</Text>
+              <Text style={styles.syncBtnText}>📄 백업</Text>
             )}
           </TouchableOpacity>
 

@@ -73,16 +73,16 @@ class PostgresBackupModule(private val reactContext: ReactApplicationContext) : 
     }
 
     @ReactMethod
-    fun backupToRemoteDb(userKey: String, promise: Promise) {
+    fun backupToRemoteDb(userKey: String, jsonData: String, promise: Promise) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val success = PostgresBackupWorker.performBackupNative(reactContext, userKey)
+                val success = PostgresBackupWorker.performBackupWithJson(userKey, jsonData)
                 if (success) {
                     promise.resolve(true)
                 } else {
                     promise.reject("BACKUP_ERROR", "Failed to execute backup")
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 promise.reject("BACKUP_ERROR", e.message, e)
             }
         }
@@ -223,7 +223,7 @@ class PostgresBackupModule(private val reactContext: ReactApplicationContext) : 
                 resultData.put("manualInstallments", manualInst)
 
                 promise.resolve(resultData.toString())
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 android.util.Log.e("PostgresBackupModule", "Restore Error", e)
                 promise.reject("RESTORE_ERROR", e.message, e)
             } finally {
