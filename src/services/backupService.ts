@@ -30,6 +30,7 @@ export interface BudgetAppBackupData {
     nicknameCreatedAt: string;
     monthlyBudget: number;
     viewMode: string;
+    userKey?: string;
   };
   transactions: Transaction[];
   recurringRules: RecurringRule[];
@@ -78,6 +79,7 @@ export const backupService = {
         nicknameCreatedAt,
         monthlyBudget,
         viewMode,
+        userKey: require('../storage/userKeyService').getUserKey(),
       },
       transactions: Array.from(allTransactionsMap.values()),
       recurringRules,
@@ -98,6 +100,14 @@ export const backupService = {
     const jsonString = this.generateBackupJson();
     const fileName = `backup_${dayjs().format('YYYYMMDDHHmmss')}.txt`;
 
+    if (NativeModules.PostgresBackupModule && typeof NativeModules.PostgresBackupModule.syncSettingsToPrefs === 'function') {
+      const parsed = JSON.parse(jsonString);
+      NativeModules.PostgresBackupModule.syncSettingsToPrefs(
+        JSON.stringify(parsed.user || {}),
+        JSON.stringify(parsed.manualInstallments || {})
+      );
+    }
+
     // 안드로이드 물리 스마트폰 Download 공개 디렉토리에 실제 backup_YYYYMMDDhhmmss.txt 파일만 저장 (클립보드 복사는 제거)
     if (SmsHistoryParserModule && typeof SmsHistoryParserModule.saveBackupFileToDownload === 'function') {
       try {
@@ -109,6 +119,44 @@ export const backupService = {
     }
 
     return { success: true, fileName, filePath: `Download/${fileName}` };
+  },
+
+  async backupToRemoteDb(): Promise<{ success: boolean; message: string }> {
+    try {
+      const userKey = require('../storage/userKeyService').getUserKey();
+      const jsonString = this.generateBackupJson();
+
+      if (NativeModules.PostgresBackupModule && typeof NativeModules.PostgresBackupModule.syncSettingsToPrefs === 'function') {
+        const parsed = JSON.parse(jsonString);
+        NativeModules.PostgresBackupModule.syncSettingsToPrefs(
+          JSON.stringify(parsed.user || {}),
+          JSON.stringify(parsed.manualInstallments || {})
+        );
+      }
+
+      if (NativeModules.PostgresBackupModule && typeof NativeModules.PostgresBackupModule.backupToRemoteDb === 'function') {
+        await NativeModules.PostgresBackupModule.backupToRemoteDb(userKey, jsonString);
+        return { success: true, message: '원격 DB에 백업이 완료되었습니다.' };
+      } else {
+        return { success: false, message: '네이티브 백업 모듈을 찾을 수 없습니다.' };
+      }
+    } catch (e: any) {
+      return { success: false, message: e.message || '원격 DB 백업 중 오류가 발생했습니다.' };
+    }
+  },
+
+  async restoreFromRemoteDb(): Promise<{ success: boolean; message: string }> {
+    try {
+      const userKey = require('../storage/userKeyService').getUserKey();
+      if (NativeModules.PostgresBackupModule && typeof NativeModules.PostgresBackupModule.restoreFromRemoteDb === 'function') {
+        const jsonString = await NativeModules.PostgresBackupModule.restoreFromRemoteDb(userKey);
+        return this.restoreAndSyncInbox(jsonString, true);
+      } else {
+        return { success: false, message: '네이티브 백업 모듈을 찾을 수 없습니다.' };
+      }
+    } catch (e: any) {
+      return { success: false, message: e.message || '원격 DB 복구 중 오류가 발생했습니다.' };
+    }
   },
 
   restoreFromBackupJson(jsonString: string): { success: boolean; message: string } {
@@ -232,7 +280,7 @@ export const backupService = {
   },
 
   // 1-1. DB 백업 데이터 1순위 복원 ➔ 1-2. RCS/SMS/MMS/APP PUSH 수신함 스캔 후 기존 DB에 없던 신규 결제건 기록
-  async restoreAndSyncInbox(jsonString: string): Promise<{ success: boolean; message: string }> {
+  async restoreAndSyncInbox(jsonString: string, isRemote: boolean = false): Promise<{ success: boolean; message: string }> {
     // 1-1. DB에 저장된 건 1순위 복원
     const restoreResult = this.restoreFromBackupJson(jsonString);
     if (!restoreResult.success) {
@@ -249,9 +297,10 @@ export const backupService = {
       }
     } catch (e) {}
 
+    const sourceText = isRemote ? '원격 DB 동기화' : '백업 파일';
     return {
       success: true,
-      message: `[1순위] 백업 파일 내역이 정상 복구되었으며,\n[2순위] 수신함(RCS/SMS/MMS/푸시) 스캔을 거쳐 기존 DB에 없는 신규 결제건 ${newlySyncedCount}건을 추가 수록했습니다!`,
+      message: `[1순위] ${sourceText} 내역이 정상 복구되었으며,\n[2순위] 수신함(RCS/SMS/MMS/푸시) 스캔을 거쳐 기존 DB에 없는 신규 결제건 ${newlySyncedCount}건을 추가 수록했습니다!`,
     };
   },
 };

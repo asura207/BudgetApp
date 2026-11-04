@@ -62,11 +62,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [smsSyncModalVisible, setSmsSyncModalVisible] = useState(false);
   const [restoreModalVisible, setRestoreModalVisible] = useState(false);
 
+  const [userKey, setUserKey] = useState('');
+
   const loadSettingsData = useCallback(() => {
     setRecurringRules(recurringDao.getAllRecurringRules());
     const list = holidayDao.getAllCustomHolidays();
     setCustomHolidays(list);
     setLastSync(getLastHolidaySync());
+    setUserKey(require('../storage/userKeyService').getUserKey());
   }, []);
 
   useFocusEffect(
@@ -328,7 +331,26 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             {isSyncing ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.syncBtnText}>📄 백업 파일 다운로드</Text>
+              <Text style={styles.syncBtnText}>📄 로컬 파일</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.syncBtn, { flex: 1, backgroundColor: '#00BCD4' }]}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            onPress={async () => {
+              setIsSyncing(true);
+              const result = await backupService.backupToRemoteDb();
+              setIsSyncing(false);
+              Alert.alert(result.success ? '백업 성공' : '백업 실패', result.message);
+            }}
+            disabled={isSyncing}
+          >
+            {isSyncing ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.syncBtnText}>☁️ 원격 DB</Text>
             )}
           </TouchableOpacity>
 
@@ -338,7 +360,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             delayPressIn={0}
             onPress={() => setRestoreModalVisible(true)}
           >
-            <Text style={styles.syncBtnText}>📥 데이터 복구</Text>
+            <Text style={styles.syncBtnText}>📥 복구</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -404,6 +426,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         >
           <Text style={[styles.menuNavBtnText, { color: '#E65100' }]}>🚫 결제 파싱 예외 문구 등록/관리 ➔</Text>
         </TouchableOpacity>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>🔑 사용자 고유 키값 (DB 동기화용)</Text>
+        <Text style={styles.sectionSub}>
+          여러 유저가 자신의 데이터를 원격 DB에 안전하게 업로드할 수 있도록 발급된 고유 식별자입니다.
+        </Text>
+        <TextInput
+          style={[styles.input, { backgroundColor: '#F0F0F0', color: '#757575', fontWeight: 'bold', textAlign: 'center' }]}
+          value={userKey}
+          editable={false}
+        />
       </View>
 
       {/* 4. 공휴일 동기화 */}
@@ -567,9 +601,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>📥 백업 파일 선택 복구</Text>
+            <Text style={styles.modalTitle}>📥 백업 데이터 복구</Text>
             <Text style={styles.modalSubText}>
-              Download 폴더에 저장된 백업 파일(backup_*.txt)을 선택하여 가계부 데이터를 복구합니다.
+              원하는 복구 방식을 선택해 주세요. 원격 DB 복구는 사용자 고유 키값으로 조회된 모든 데이터를 가져와 복원합니다.
             </Text>
 
             <TouchableOpacity
@@ -578,7 +612,27 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               delayPressIn={0}
               onPress={handlePickFileAndRestore}
             >
-              <Text style={styles.pickFileBtnText}>📁 백업 파일 업로드 선택 (backup_*.txt)</Text>
+              <Text style={styles.pickFileBtnText}>📁 로컬 백업 파일 선택 (backup_*.txt)</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.pickFileBtn, { backgroundColor: '#00BCD4', marginTop: 10 }]}
+              activeOpacity={0.7}
+              delayPressIn={0}
+              onPress={async () => {
+                setIsSyncing(true);
+                const result = await backupService.restoreFromRemoteDb();
+                setIsSyncing(false);
+                if (result.success) {
+                  setRestoreModalVisible(false);
+                  loadSettingsData();
+                  Alert.alert('복구 성공', result.message);
+                } else {
+                  Alert.alert('복구 실패', result.message);
+                }
+              }}
+            >
+              <Text style={styles.pickFileBtnText}>☁️ 원격 DB에서 복원</Text>
             </TouchableOpacity>
 
             <View style={styles.modalBtnRow}>
