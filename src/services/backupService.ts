@@ -125,48 +125,47 @@ export const backupService = {
     try {
       const userKey = require('../storage/userKeyService').getUserKey();
       const jsonString = this.generateBackupJson();
+      const backupData = JSON.parse(jsonString);
 
-      if (NativeModules.PostgresBackupModule && typeof NativeModules.PostgresBackupModule.syncSettingsToPrefs === 'function') {
-        const parsed = JSON.parse(jsonString);
-        NativeModules.PostgresBackupModule.syncSettingsToPrefs(
-          JSON.stringify(parsed.user || {}),
-          JSON.stringify(parsed.manualInstallments || {})
-        );
+      const res = await fetch(`http://218.234.55.78:8000/api/backup/${encodeURIComponent(userKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(backupData),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        return { success: false, message: result.detail || result.message || '원격 DB 백업 실패' };
       }
-
-      if (NativeModules.PostgresBackupModule && typeof NativeModules.PostgresBackupModule.backupToRemoteDb === 'function') {
-        await NativeModules.PostgresBackupModule.backupToRemoteDb(userKey, jsonString);
-        return { success: true, message: '원격 DB에 백업이 완료되었습니다.' };
-      } else {
-        return { success: false, message: '네이티브 백업 모듈을 찾을 수 없습니다.' };
-      }
+      return { success: true, message: '원격 DB에 백업이 완료되었습니다.' };
     } catch (e: any) {
-      return { success: false, message: e.message || '원격 DB 백업 중 오류가 발생했습니다.' };
+      return { success: false, message: e.message || '원격 DB 백업 중 통신 오류가 발생했습니다.' };
     }
   },
 
   async restoreFromRemoteDb(inputUserKey?: string): Promise<{ success: boolean; message: string }> {
     try {
       const userKey = inputUserKey || require('../storage/userKeyService').getUserKey();
-      if (NativeModules.PostgresBackupModule && typeof NativeModules.PostgresBackupModule.restoreFromRemoteDb === 'function') {
-        const jsonString = await NativeModules.PostgresBackupModule.restoreFromRemoteDb(userKey);
-
-        // 데이터 유효성 사전 검사 (빈 객체면 실패 처리)
-        const parsed = JSON.parse(jsonString);
-        if (!parsed || Object.keys(parsed).length === 0 || (!parsed.user && !parsed.transactions)) {
-          return { success: false, message: '해당 키값에 저장된 백업 데이터가 없습니다.' };
-        }
-
-        const result = await this.restoreAndSyncInbox(jsonString, true);
-        if (result.success && inputUserKey) {
-          require('../storage/userKeyService').setUserKey(inputUserKey);
-        }
-        return result;
-      } else {
-        return { success: false, message: '네이티브 백업 모듈을 찾을 수 없습니다.' };
+      const res = await fetch(`http://218.234.55.78:8000/api/restore/${encodeURIComponent(userKey)}`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        return { success: false, message: result.detail || result.message || '원격 DB 복구 실패' };
       }
+
+      if (!result || Object.keys(result).length === 0 || (!result.user && !result.transactions)) {
+        return { success: false, message: '해당 키값에 저장된 백업 데이터가 없습니다.' };
+      }
+
+      const jsonString = JSON.stringify(result);
+      const syncRes = await this.restoreAndSyncInbox(jsonString, true);
+      if (syncRes.success && inputUserKey) {
+        require('../storage/userKeyService').setUserKey(inputUserKey);
+      }
+      return syncRes;
     } catch (e: any) {
-      return { success: false, message: e.message || '원격 DB 복구 중 오류가 발생했습니다.' };
+      return { success: false, message: e.message || '원격 DB 복구 중 통신 오류가 발생했습니다.' };
     }
   },
 

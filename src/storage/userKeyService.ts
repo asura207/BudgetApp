@@ -1,5 +1,4 @@
 import { MMKV } from 'react-native-mmkv';
-import { NativeModules } from 'react-native';
 
 const storage = new MMKV({ id: 'budget-app-storage' });
 const USER_KEY_KEY = 'budgetapp.user.key';
@@ -16,16 +15,9 @@ export const getUserKey = (): string => {
     storage.set(USER_KEY_KEY, userKey);
   }
 
-  if (NativeModules.PostgresBackupModule && typeof NativeModules.PostgresBackupModule.saveUserKeyForWorker === 'function') {
-    NativeModules.PostgresBackupModule.saveUserKeyForWorker(userKey);
-  }
-
   return userKey;
 };
 
 export const setUserKey = (key: string): void => {
   storage.set(USER_KEY_KEY, key);
-  if (NativeModules.PostgresBackupModule && typeof NativeModules.PostgresBackupModule.saveUserKeyForWorker === 'function') {
-    NativeModules.PostgresBackupModule.saveUserKeyForWorker(key);
-  }
 };

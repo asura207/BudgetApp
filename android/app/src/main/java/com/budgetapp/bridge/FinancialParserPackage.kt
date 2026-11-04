@@ -9,8 +9,7 @@ class FinancialParserPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
         return listOf(
             FinancialParserModule(reactContext),
-            SmsHistoryParserModule(reactContext),
-            PostgresBackupModule(reactContext)
+            SmsHistoryParserModule(reactContext)
         )
     }
 
