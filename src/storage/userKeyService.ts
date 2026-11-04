@@ -22,3 +22,10 @@ export const getUserKey = (): string => {
 
   return userKey;
 };
+
+export const setUserKey = (key: string): void => {
+  storage.set(USER_KEY_KEY, key);
+  if (NativeModules.PostgresBackupModule && typeof NativeModules.PostgresBackupModule.saveUserKeyForWorker === 'function') {
+    NativeModules.PostgresBackupModule.saveUserKeyForWorker(key);
+  }
+};

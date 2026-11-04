@@ -145,12 +145,23 @@ export const backupService = {
     }
   },
 
-  async restoreFromRemoteDb(): Promise<{ success: boolean; message: string }> {
+  async restoreFromRemoteDb(inputUserKey?: string): Promise<{ success: boolean; message: string }> {
     try {
-      const userKey = require('../storage/userKeyService').getUserKey();
+      const userKey = inputUserKey || require('../storage/userKeyService').getUserKey();
       if (NativeModules.PostgresBackupModule && typeof NativeModules.PostgresBackupModule.restoreFromRemoteDb === 'function') {
         const jsonString = await NativeModules.PostgresBackupModule.restoreFromRemoteDb(userKey);
-        return this.restoreAndSyncInbox(jsonString, true);
+
+        // 데이터 유효성 사전 검사 (빈 객체면 실패 처리)
+        const parsed = JSON.parse(jsonString);
+        if (!parsed || Object.keys(parsed).length === 0 || (!parsed.user && !parsed.transactions)) {
+          return { success: false, message: '해당 키값에 저장된 백업 데이터가 없습니다.' };
+        }
+
+        const result = await this.restoreAndSyncInbox(jsonString, true);
+        if (result.success && inputUserKey) {
+          require('../storage/userKeyService').setUserKey(inputUserKey);
+        }
+        return result;
       } else {
         return { success: false, message: '네이티브 백업 모듈을 찾을 수 없습니다.' };
       }

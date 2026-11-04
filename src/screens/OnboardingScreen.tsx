@@ -83,6 +83,8 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
   const [name, setName] = useState('');
   const [budgetStr, setBudgetStr] = useState('');
   const [restoreModalVisible, setRestoreModalVisible] = useState(false);
+  const [remoteKeyInput, setRemoteKeyInput] = useState('');
+  const [isRemoteInputVisible, setIsRemoteInputVisible] = useState(false);
 
   // 프로그레스 바 상태
   const [isProcessing, setIsProcessing] = useState(false);
@@ -185,6 +187,44 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
         Alert.alert('오류', e?.message || '파일을 읽는 중 오류가 발생했습니다.');
       }
     }
+  };
+
+  const handleRemoteDbRestore = async () => {
+    if (!remoteKeyInput || remoteKeyInput.length < 6) {
+      Alert.alert('알림', '6자리 사용자 고유 키값을 정확히 입력해 주세요.');
+      return;
+    }
+
+    setRestoreModalVisible(false);
+    setIsProcessing(true);
+    setProgressPercent(30);
+    setProgressMessage('1/3. 원격 DB에서 백업 데이터를 다운로드 및 복구 중입니다...');
+
+    const result = await backupService.restoreFromRemoteDb(remoteKeyInput.toUpperCase());
+
+    if (!result.success) {
+      setIsProcessing(false);
+      Alert.alert('복구 실패', result.message);
+      return;
+    }
+
+    setProgressPercent(80);
+    setProgressMessage('2/3. 수신함 SMS 읽기 및 알림 권한 허가 요청 중...');
+
+    await requestSmsPermissionsIfNeeded();
+    if (Platform.OS === 'android') {
+      try {
+        Linking.sendIntent('android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS');
+      } catch (e) {}
+    }
+
+    setProgressPercent(100);
+    setProgressMessage('3/3. 원격 DB 복구가 완료되었습니다! 메인 화면으로 이동합니다.');
+
+    setTimeout(() => {
+      setIsProcessing(false);
+      onComplete();
+    }, 600);
   };
 
   const handleSave = async () => {
@@ -334,32 +374,77 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
         visible={restoreModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setRestoreModalVisible(false)}
+        onRequestClose={() => {
+          setRestoreModalVisible(false);
+          setIsRemoteInputVisible(false);
+        }}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>📥 백업 파일 복구</Text>
+            <Text style={styles.modalTitle}>📥 백업 데이터 복구</Text>
             <Text style={styles.modalSubText}>
-              Download 폴더에 저장된 백업 파일(backup_*.txt)을 선택하여 가계부 데이터를 복구합니다.
+              원하는 복구 방식을 선택해 주세요. 원격 DB 복구는 기존에 발급받은 6자리 사용자 고유 키값을 입력하여 복원합니다.
             </Text>
 
-            <TouchableOpacity
-              style={styles.pickFileBtn}
-              activeOpacity={0.7}
-              delayPressIn={0}
-              onPress={handlePickFileAndRestore}
-            >
-              <Text style={styles.pickFileBtnText}>📁 백업 파일 업로드 선택 (backup_*.txt)</Text>
-            </TouchableOpacity>
+            {!isRemoteInputVisible ? (
+              <>
+                <TouchableOpacity
+                  style={styles.pickFileBtn}
+                  activeOpacity={0.7}
+                  delayPressIn={0}
+                  onPress={handlePickFileAndRestore}
+                >
+                  <Text style={styles.pickFileBtnText}>📁 로컬 백업 파일 선택 (backup_*.txt)</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.pickFileBtn, { backgroundColor: '#00BCD4', marginTop: 10 }]}
+                  activeOpacity={0.7}
+                  delayPressIn={0}
+                  onPress={() => setIsRemoteInputVisible(true)}
+                >
+                  <Text style={styles.pickFileBtnText}>☁️ 원격 DB에서 복원</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <View style={{ marginTop: 10 }}>
+                <Text style={styles.label}>사용자 고유 키값 (6자리 영문/숫자)</Text>
+                <TextInput
+                  style={[styles.input, { marginBottom: 12 }]}
+                  placeholder="예: X8D9K1"
+                  placeholderTextColor="#9E9E9E"
+                  value={remoteKeyInput}
+                  onChangeText={setRemoteKeyInput}
+                  autoCapitalize="characters"
+                  maxLength={6}
+                />
+                <TouchableOpacity
+                  style={[styles.pickFileBtn, { backgroundColor: '#00BCD4' }]}
+                  activeOpacity={0.7}
+                  delayPressIn={0}
+                  onPress={handleRemoteDbRestore}
+                >
+                  <Text style={styles.pickFileBtnText}>☁️ 입력한 키값으로 복원 실행</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             <View style={styles.modalBtnRow}>
               <TouchableOpacity
                 style={[styles.modalBtn, { backgroundColor: '#F5F5F5' }]}
                 activeOpacity={0.7}
                 delayPressIn={0}
-                onPress={() => setRestoreModalVisible(false)}
+                onPress={() => {
+                  if (isRemoteInputVisible) {
+                    setIsRemoteInputVisible(false);
+                  } else {
+                    setRestoreModalVisible(false);
+                  }
+                }}
               >
-                <Text style={{ color: '#666666', fontWeight: 'bold' }}>취소</Text>
+                <Text style={{ color: '#666666', fontWeight: 'bold' }}>
+                  {isRemoteInputVisible ? '뒤로가기' : '취소'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
