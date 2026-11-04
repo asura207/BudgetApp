@@ -80,7 +80,7 @@ android {
 
 dependencies {
     implementation("com.facebook.react:react-android")
-    implementation("org.postgresql:postgresql:42.6.0")
+    implementation("org.postgresql:postgresql:42.2.27")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     if (hermesEnabled.toBoolean()) {
