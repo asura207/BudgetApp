@@ -207,6 +207,7 @@ export const backupService = {
         if (data.user.nicknameCreatedAt) setNicknameCreatedAt(data.user.nicknameCreatedAt);
         if (data.user.monthlyBudget > 0) setMonthlyBudget(data.user.monthlyBudget);
         if (data.user.viewMode) setViewMode(data.user.viewMode as any);
+        if (data.user.userKey) require('../storage/userKeyService').setUserKey(data.user.userKey);
       }
 
       // 2. 파싱 예외 단어 먼저 복구 (네이버페이는 applySms가 false이므로 문자는 허용)
