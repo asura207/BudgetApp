@@ -92,7 +92,7 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
   const [installmentModalVisible, setInstallmentModalVisible] = useState(false);
   const [installmentDetailItems, setInstallmentDetailItems] = useState<InstallmentItemDetail[]>([]);
 
-  const [monthlyBudget, setBudget] = useState(getMonthlyBudget());
+  const [monthlyBudget, setBudget] = useState(getMonthlyBudget(currentYearMonth));
 
   // 주간 뷰를 위한 선택된 주 기준 날짜
   const [selectedWeekDate, setSelectedWeekDate] = useState(dayjs());
@@ -232,7 +232,7 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
   ).current;
 
   const loadCalendarData = useCallback(() => {
-    const budget = getMonthlyBudget();
+    const budget = getMonthlyBudget(currentYearMonth);
     setBudget(budget);
 
     // 수동 추가 입력 할부금 로드

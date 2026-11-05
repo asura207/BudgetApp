@@ -141,9 +141,23 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
     }
 
     @ReactMethod
-    fun saveBackupFileToDownload(jsonContent: String, fileName: String, promise: Promise) {
+    fun saveBackupFileToDownload(jsonContent: String, fileName: String, isDailyAutoBackup: Boolean, promise: Promise) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val resolver = reactContext.contentResolver
+                val contentUri = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                
+                // 기존 백업 파일 삭제 로직 (isDailyAutoBackup 이 true 이면 이전 파일 삭제)
+                if (isDailyAutoBackup) {
+                    try {
+                        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?"
+                        val selectionArgs = arrayOf("backup_%.txt")
+                        resolver.delete(contentUri, selection, selectionArgs)
+                    } catch (e: Exception) {
+                        // ignore deletion errors
+                    }
+                }
+
                 // Android 10 (API 29) 이상: Scoped Storage 표준 MediaStore.Downloads API 사용
                 val contentValues = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
@@ -151,8 +165,6 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                     put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
                 }
 
-                val resolver = reactContext.contentResolver
-                val contentUri = MediaStore.Downloads.EXTERNAL_CONTENT_URI
                 val uri = resolver.insert(contentUri, contentValues)
                     ?: throw IOException("Failed to create MediaStore record in Downloads")
 
@@ -168,6 +180,17 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                 if (!downloadsDir.exists()) {
                     downloadsDir.mkdirs()
                 }
+                
+                if (isDailyAutoBackup) {
+                    try {
+                        downloadsDir.listFiles { file ->
+                            file.isFile && file.name.startsWith("backup_") && file.name.endsWith(".txt")
+                        }?.forEach { it.delete() }
+                    } catch (e: Exception) {
+                        // ignore
+                    }
+                }
+                
                 val file = File(downloadsDir, fileName)
                 file.writeText(jsonContent, Charsets.UTF_8)
 

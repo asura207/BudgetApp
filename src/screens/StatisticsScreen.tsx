@@ -510,7 +510,8 @@ export const StatisticsScreen = () => {
   const yearSavingsStats = getSavingsStatsForYear(selectedYearTab);
 
   // 월별 예산, 사용 금액, 잔액 계산
-  const monthlyBudget = getMonthlyBudget();
+  const monthPrefix = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
+  const monthlyBudget = getMonthlyBudget(monthPrefix);
   const monthSpent = monthCardStats.totalMonthExpense;
   const monthBalance = monthlyBudget - monthSpent;
   const isUnderBudget = monthBalance >= 0;

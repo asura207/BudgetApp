@@ -65,6 +65,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [userKey, setUserKey] = useState('');
 
   const loadSettingsData = useCallback(() => {
+    const budget = require('../storage/mmkv').getMonthlyBudget(dayjs().format('YYYY-MM'));
+    setBudgetStr(require('../utils/budgetUtils').formatNumberWithComma(budget));
+
     setRecurringRules(recurringDao.getAllRecurringRules());
     const list = holidayDao.getAllCustomHolidays();
     setCustomHolidays(list);
@@ -107,7 +110,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       return;
     }
     setMonthlyBudget(val);
-    Alert.alert('성공', '한 달 목표 예산이 변경되었습니다.');
+    const currentMonthLabel = dayjs().format('YYYY년 M월');
+    Alert.alert('성공', `${currentMonthLabel}의 목표 예산 및 기본 예산이 변경되었습니다.`);
   };
 
   const handleSyncHolidays = async () => {

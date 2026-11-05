@@ -96,7 +96,7 @@ export const backupService = {
     return JSON.stringify(backupObj, null, 2);
   },
 
-  async exportBackupToFile(): Promise<{ success: boolean; fileName: string; filePath: string }> {
+  async exportBackupToFile(isDailyAutoBackup: boolean = false): Promise<{ success: boolean; fileName: string; filePath: string }> {
     const jsonString = this.generateBackupJson();
     const fileName = `backup_${dayjs().format('YYYYMMDDHHmmss')}.txt`;
 
@@ -108,10 +108,10 @@ export const backupService = {
       );
     }
 
-    // 안드로이드 물리 스마트폰 Download 공개 디렉토리에 실제 backup_YYYYMMDDhhmmss.txt 파일만 저장 (클립보드 복사는 제거)
+    // 안드로이드 물리 스마트폰 Download 공개 디렉토리에 실제 backup_YYYYMMDDhhmmss.txt 파일만 저장
     if (SmsHistoryParserModule && typeof SmsHistoryParserModule.saveBackupFileToDownload === 'function') {
       try {
-        const savedPath = await SmsHistoryParserModule.saveBackupFileToDownload(jsonString, fileName);
+        const savedPath = await SmsHistoryParserModule.saveBackupFileToDownload(jsonString, fileName, isDailyAutoBackup);
         return { success: true, fileName, filePath: savedPath };
       } catch (e) {
         // Fallback
@@ -119,6 +119,30 @@ export const backupService = {
     }
 
     return { success: true, fileName, filePath: `Download/${fileName}` };
+  },
+
+  async runDailyAutoBackup(): Promise<void> {
+    try {
+      const { storage } = require('../storage/mmkv');
+      const lastBackup = storage.getString('last_daily_backup_date');
+      const todayStr = dayjs().format('YYYY-MM-DD');
+
+      if (lastBackup === todayStr) {
+        return; // 이미 오늘 백업 완료
+      }
+
+      // 1. 로컬 파일 백업 (기존 파일 삭제)
+      await this.exportBackupToFile(true);
+
+      // 2. 원격 DB 백업
+      const result = await this.backupToRemoteDb();
+      if (result.success) {
+        storage.set('last_daily_backup_date', todayStr);
+        console.log('✅ 매일 1회 원격 및 로컬 파일 백업 완료');
+      }
+    } catch (e) {
+      console.warn('Daily auto backup failed:', e);
+    }
   },
 
   async backupToRemoteDb(): Promise<{ success: boolean; message: string }> {
