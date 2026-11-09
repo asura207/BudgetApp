@@ -1,158 +1,105 @@
-# 📱 스탠드얼론 안드로이드 스마트 가계부 (BudgetApp)
+# 📊 예산 가계부 (BudgetApp)
 
-본 애플리케이션은 서버 연결 없이 **안드로이드 기기 단독(Standalone)으로 동작**하는 개인 맞춤형 스마트 가계부 앱입니다.  
-신용카드/체크카드 결제 문자(SMS/MMS), 삼성 채팅+(RCS), 앱 푸시 알림(NotificationListenerService)을 실시간으로 자동 분석 및 파싱하여 일별 지출 및 적금 내역을 달력과 통계로 체계적으로 관리할 수 있습니다.
-
----
-
-## 🛠️ 1. 필수 라이브러리 및 설치 방법
-
-본 프로젝트는 React Native v0.73.6 및 Android Native C++/Kotlin 브릿지를 기반으로 개발되었습니다.
-
-### 📦 주요 의존성 패키지 (Dependencies)
-
-| 라이브러리 | 버전 | 설명 및 용도 |
-| :--- | :--- | :--- |
-| **`react` / `react-native`** | `18.2.0` / `0.73.6` | 모바일 프레임워크 코어 엔진 |
-| **`@react-navigation/native`** | `^6.1.18` | 화면 네비게이션 상태 관리 |
-| **`@react-navigation/native-stack`** | `^6.10.1` | 네이티브 스택 화면 전환 효과 |
-| **`react-native-quick-sqlite`** | `^8.2.7` | 고성능 로컬 SQLite 데이터베이스 (거래/공휴일/정기결제 저장) |
-| **`react-native-mmkv`** | `^2.11.0` | C++ 기반 고속 Key-Value 저장소 (목표 예산/닉네임/뷰모드 저장) |
-| **`react-native-calendars`** | `^1.1314.0` | 커스텀 달력 컴포넌트 및 정기 시작일 선택 모달 |
-| **`react-native-gifted-charts`** | `^1.4.63` | 월별/연도별 지출 및 적금 막대 차트 시각화 |
-| **`react-native-svg`** | `^14.1.0` | 차트 및 그래픽 렌더링 지원 |
-| **`react-native-linear-gradient`** | `^2.8.3` | 그라데이션 UI 디자인 요소 지원 |
-| **`react-native-screens`** | `^3.34.0` | 안드로이드 최적화 네이티브 스크린 렌더링 |
-| **`react-native-safe-area-context`** | `^4.12.0` | 기기별 노치 및 시스템 바 안전 영역 처리 |
-| **`dayjs`** | `^1.11.23` | 날짜 연산 및 포맷팅 라이브러리 |
-
-### 🚀 라이브러리 설치 방법
-
-프로젝트 루트 디렉토리에서 아래 명령어를 실행하여 모든 필수 패키지를 한 번에 설치합니다:
-
-```bash
-# 1. 패키지 의존성 설치
-npm install
-
-# 2. 캐시 초기화 및 노드 모듈 재구성 (필요 시)
-npm start -- --reset-cache
-```
+안드로이드 전용 오프라인 기반 스탠드얼론 가계부 앱입니다. 사용자의 문자(SMS, MMS, RCS) 및 앱 푸시(App Push) 알림을 네이티브 단에서 자동 파싱하여 실시간으로 가계부 지출 내역에 연동합니다. 또한, 매일 로컬 파일 및 원격 PostgreSQL DB로 자동 백업 기능을 제공하여 데이터 유실을 방지합니다.
 
 ---
 
-## 📱 2. 화면별 기능 설명 (사용자 설명서)
+## ✨ 주요 기능
 
-### 1️⃣ 온보딩 & 사용자 초기 설정 화면 (`OnboardingScreen`)
-- **닉네임(별명) 및 가입일 저장**: 사용자 별명을 설정하면 닉네임 설정 일자(`NICKNAME_CREATED_AT`)가 시스템에 자동 기록됩니다.
-- **목표 예산 직접 입력**: 한 달 예산 입력란이 깔끔하게 빈 칸(`''`)으로 제공되어 사용자가 원하는 목표 예산을 직접 입력합니다.
-- **가입월 결제 내역 자동 분석**: 닉네임 설정 완료 시 가입한 달의 1일부터 가입일까지 수신함의 모든 카드 결제 문자/푸시를 자동으로 파싱하여 가계부에 등록합니다.
-
-### 2️⃣ 달력 & 가계부 화면 (`MainCalendarScreen`)
-- **월간 뷰 (Monthly Calendar)**:
-  - 일자별 실제 총 지출 금액과 적금/저축 금액(`🏦`)을 한눈에 구분 표시합니다.
-  - 토요일, 일요일 및 공휴일(법정 공휴일/임시 공휴일)은 빨간색으로 자동 구분됩니다.
-  - 일자 셀 터치 시 해당 일자의 상세 지출 내역 화면으로 이동합니다.
-- **주간 뷰 (Weekly View)**:
-  - 지난주/다음주 및 '오늘 주차로 이동' 컨트롤러 제공.
-  - 이번 주 남은 예산 잔액 배너 및 월요일부터 일요일까지 7일간의 지출/저축 상태 카드 목록을 상세히 제공합니다.
-- **상단 뷰 전환 버튼**:
-  - 현재 월간 뷰일 때: **`📅 주간 뷰`** 버튼 표시 (터치 시 주간 뷰 전환)
-  - 현재 주간 뷰일 때: **`📆 월간 뷰`** 버튼 표시 (터치 시 월간 뷰 전환)
-
-### 3️⃣ 일별 지출 상세 화면 (`DailyDetailScreen`)
-- **통합 요약 배너**: 해당 일자의 **총 지출 금액** 및 **총 적금 금액**을 상단 배너에 시각적으로 안내합니다.
-- **거래 및 정기 결제 내역 리스트**:
-  - 수신된 실제 결제건 및 당일 적용되는 정기 결제/적금 항목(`(정기결제)`)을 함께 표시합니다.
-  - 각 거래별 **`[수정]`**, **`[삭제]`** 기능을 지원합니다.
-- **수동 거래 추가 (`+ 거래 추가`)**: 사용자가 지출/적금 구분, 금액, 사용처, 결제 수단, 카드사, 할부 여부를 직접 수동 등록할 수 있습니다.
-
-### 4️⃣ 통계 화면 (`StatisticsScreen`)
-- **월별 지출 추이 탭**:
-  - 1월~12월 지출 막대 차트 (단위: 만원).
-  - 연간 총 지출 금액 및 총 적금/저축 금액 수치 요약.
-  - **`💳 10월 카드사별 지출 합계` 표**: 카드사/결제수단별 지출액 및 비율(%).
-  - **`🏦 10월 적금/저축 합계` 표**: 지출 표 바로 아래 동일한 디자인 양식으로 적금 항목별 적금액 및 비율(%) 표시.
-- **연도별 비교 탭**:
-  - 가입한 연도부터 최대 5개년 지출 및 저축 추이 비교 테이블.
-  - 선택 연도의 카드사별 지출 합계 및 적금/저축 합계 표 제공.
-- **누적 통계 규칙**: 정기 결제/적금은 미래 날짜를 제외하고 **오늘 날짜(`<= today`)까지 도래한 누적 금액만 정확히 집계**합니다.
-
-### 5️⃣ 환경 설정 화면 (`SettingsScreen`)
-- **목표 예산 변경**: 한 달 목표 예산 수정 및 저장.
-- **공휴일 API 동기화**: 한국천문연구원 OpenAPI 연동으로 매년 법정/임시공휴일 최신 업데이트.
-- **수신함 결제 내역 실시간 동기화**: `📱 수신함 결제 내역 실시간 동기화 실행` 버튼 클릭 시 수신함의 결제 내역을 실시간으로 스캔하여 가계부 전 화면에 반영.
-- **실시간 앱 푸시 알림 접근 권한**: `🔔 실시간 앱 푸시 알림 접근 권한 설정` 버튼 터치 시 안드로이드 '알림 접근 허용' 설정 화면으로 직행.
-- **정기 결제 내역 관리**: 매월 지정일 / 매일 반복, 지출/적금 구분, 시작일 지정(`startDate`), 카드사 선택, `[수정]` / `[삭제]` 기능 제공.
-- **임시 공휴일 수동 관리**: 사용자가 지정하는 특정 날짜를 공휴일로 등록/삭제 (`CustomHolidayScreen`).
+1. **지능형 결제 내역 자동 파싱 (Native Module)**
+   - 삼성 갤럭시 RCS 채팅+, SMS, MMS 대화함 스캔 및 결제 내역 추출.
+   - 백그라운드 **앱 푸시 알림 리스너(`NotificationListenerService`)** 탑재. 현대카드, 삼성카드 등 주요 카드사 및 금융 앱의 결제 알림을 즉시 가계부에 등록.
+   - 마케팅 알림, 시스템 알림(시스템 UI, 유튜브 뮤직, 플레이오, 구글플레이 등), 만보기/악성앱 경고 등 불필요한 알림은 자동 필터링 및 DB 소제 처리.
+2. **캘린더 뷰 (월간 / 주간)**
+   - 달력 UI에서 1일 사용 권장 예산 대비 지출액을 직관적으로 확인 (초과 시 빨간색, 예산 내 초록색).
+   - 좌우 스와이프(제스처)를 통한 부드러운 지난주/다음주, 전날/다음날 이동 지원.
+3. **독립적인 월별 예산 관리**
+   - 글로벌 목표 예산을 기본으로 하되, 과거 달의 예산과 현재 달의 예산을 독립적으로 분리 저장하여 통계의 정확성 보장.
+4. **정기 결제 및 공휴일 롤오버**
+   - 한국천문연구원 API 연동으로 매년 법정 공휴일 자동 동기화.
+   - 고정 지출일이 주말/공휴일인 경우, 다음 첫 번째 영업일(평일)로 결제일을 자동 이관하여 달력에 표시.
+5. **강력한 데이터 백업 & 복원 시스템 (로컬/원격)**
+   - **사용자 고유 키(6자리 영문/숫자)** 발급을 통한 다중 사용자 원격 DB(PostgreSQL) 분리 저장.
+   - 매일 앱 최초 실행 시 로컬 `Download` 폴더 내 백업 파일(.txt) 자동 교체(Rotation) 및 원격 DB 자동 동기화. (설정에서 On/Off 가능)
+   - 앱 재설치 시 **로컬 파일 업로드 복원** 및 **고유 키 입력 원격 복원** 두 가지 옵션 제공.
 
 ---
 
-## 💻 3. 실행 방법, 실행 순서 및 APK 생성 안내
+## 🛠 기술 스택
 
-### 📋 전제 조건 (Prerequisites)
-- **Node.js**: `v18.0.0` 이상
-- **JDK**: OpenJDK `17` (`JAVA_HOME` 설정)
-- **Android SDK**: Android API 34 이상 (`ANDROID_HOME` 설정)
-
----
-
-### 🏃‍♂️ 실행 방법 및 순서
-
-#### **1단계: 의존성 라이브러리 설치**
-```bash
-npm install
-```
-
-#### **2단계: 안드로이드 환경변수 및 local.properties 세팅**
-```bash
-# Windows 환경
-npm run env:win
-
-# macOS / Linux 환경
-npm run env:mac
-```
-
-#### **3단계: React Native JS 번들 파일 컴파일**
-```bash
-npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res
-```
-
-#### **4단계: 개발 앱 실행 (에뮬레이터 또는 USB 연결 단말)**
-```bash
-# Windows 환경
-npm run android:win
-
-# macOS / Linux 환경
-npm run android:mac
-```
+- **Frontend**: React Native CLI 0.73.6 (TypeScript)
+- **Local DB / Storage**: `react-native-quick-sqlite` (C++ WAL mode SQLite), `react-native-mmkv`
+- **Native Modules (Android/Kotlin)**: BroadcastReceiver, NotificationListenerService, MediaStore API
+- **Remote DB & Backend (연동)**: Python FastAPI, PostgreSQL (`prompt_backend.md` 참고)
 
 ---
 
-### 📦 정식 Release APK 생성 방법 (컴파일)
+## 🚀 설치 및 로컬 실행 가이드
 
-스마트폰에 직접 설치하여 배포할 수 있는 **정식 서명된 Release APK 생성 방법**입니다.
+이 프로젝트는 안드로이드 전용(Android Standalone)으로 구성되어 있습니다.
 
-#### **1단계: Release APK 빌드 명령 실행**
+### 1. 사전 요구사항 (Prerequisites)
+- [Node.js](https://nodejs.org/) (v18 이상 권장)
+- [Java Development Kit (JDK)](https://adoptium.net/) 17
+- [Android Studio](https://developer.android.com/studio) 및 Android SDK (API 34 권장)
+- 안드로이드 환경 변수(`ANDROID_HOME`, `JAVA_HOME`) 설정 완료
+
+### 2. 패키지 설치
+프로젝트 루트 디렉토리에서 아래 명령어를 실행하여 의존성 패키지를 설치합니다.
+(피어 디펜던시 충돌을 방지하기 위해 `--legacy-peer-deps` 옵션 사용 권장)
+```bash
+npm install --legacy-peer-deps
+```
+
+### 3. 안드로이드 디바이스 연결 및 실행
+안드로이드 물리 기기를 USB로 연결하거나, Android 에뮬레이터를 실행한 후 아래 명령어를 입력합니다.
+```bash
+npx react-native run-android
+```
+
+> **주의**: 앱 푸시 알림 수집 기능(`NotificationListenerService`)은 물리 기기에서 '알림 접근 허용' 권한을 활성화해야 정상 작동합니다.
+
+---
+
+## 📦 릴리즈(Release) APK 빌드 가이드
+
+앱 스토어 배포용 또는 실사용 설치용 릴리즈 APK를 추출하는 방법입니다.
+프로젝트 루트에는 빌드 자동화 스크립트(`scripts/run-build.js`)가 내장되어 있습니다.
+
+**Release 키스토어 정보 (내장됨)**
+- 위치: `android/app/my-release-key.keystore`
+- Key Alias: `my-key-alias`
+- Key Password / Store Password: `!dnjstjq83`
+
+**Windows 환경 빌드 명령어**
 ```bash
 node scripts/run-build.js window assembleRelease
 ```
-
-#### **2단계: 생성된 APK 파일 위치 확인**
-빌드가 완료되면 아래 경로에 `app-release.apk` 파일이 생성됩니다:
+**Mac/Linux 환경 빌드 명령어**
+```bash
+node scripts/run-build.js mac assembleRelease
 ```
-android/app/build/outputs/apk/release/app-release.apk
-```
-
-#### **3단계: 스마트폰 설치 방법**
-- **방법 A (USB 연결 후 ADB 즉시 설치)**:
-  스마트폰의 `USB 디버깅`을 켠 상태에서 PC 터미널에서 다음 명령어를 실행합니다:
-  ```bash
-  adb install -r android/app/build/outputs/apk/release/app-release.apk
-  ```
-- **방법 B (파일 bezpośred 전송 후 설치)**:
-  `app-release.apk` 파일을 카카오톡 나에게 보내기, 구글 드라이브 등으로 폰에 전송한 뒤, 스마트폰의 **[내 파일]** 앱에서 터치하여 설치합니다. (설치 시 '출처를 알 수 없는 앱 허용' 스위치를 활성화합니다.)
+빌드가 완료되면 아래 경로에 `.apk` 파일이 생성됩니다.
+➔ `android/app/build/outputs/apk/release/app-release.apk`
 
 ---
 
-### 🔒 보안 및 서명 키 정보
-본 프로젝트의 APK 서명 키(`my-release-key.keystore`)는 보안을 위해 `.gitignore`에 자동 등록되어 원격 저장소 노출이 방지됩니다.
+## 🌐 원격 DB(PostgreSQL) 연동 설정 
+
+앱은 기기 자체 로컬 DB(SQLite)만으로도 100% 동작하지만, 휴대폰 분실 및 기기 변경에 대비해 원격 DB 동기화를 지원합니다.
+
+1. **백엔드 서버 기동**: 
+   루트 디렉토리의 `prompt_backend.md` 파일에 정의된 명세에 따라 **Python FastAPI 백엔드 서버**를 구동해야 합니다.
+2. **API 엔드포인트 수정**:
+   `src/services/backupService.ts` 내의 `fetch` URL을 실제 백엔드가 구동 중인 서버 IP 및 포트(예: `http://218.234.55.78:8000`)로 맞춰주세요. (CORS 허용 필수)
+3. **앱 내 방화벽 해제**:
+   `android/app/src/main/AndroidManifest.xml`에 `<application android:usesCleartextTraffic="true">`가 선언되어 있어 HTTP 통신이 가능합니다.
+
+---
+
+## 🤝 유지보수 및 주요 소스코드 위치
+
+- **`src/services/backupService.ts`**: 로컬/원격 백업 및 복원, 매일 자동 백업 로테이션 스케줄러 로직.
+- **`android/app/src/main/java/com/budgetapp/notification/AppNotificationListener.kt`**: 백그라운드 푸시 알림 수신, 필터링(가맹점 이름, 취소 건 등), 영구 보관(`is_bookmarked=1`) 처리.
+- **`src/storage/mmkv.ts`**: 월별 목표 예산(`getMonthlyBudget`), 사용자 고유 키(`userKey`), 백업 토글 상태 등의 초고속 K-V 스토리지 래퍼.
+- **`android/app/src/main/java/com/budgetapp/bridge/FinancialTextParser.kt`**: 안드로이드 네이티브 단에서 동작하는 정밀한 정규표현식(Regex) 기반 카드/은행사 결제 문구 파싱 엔진.
