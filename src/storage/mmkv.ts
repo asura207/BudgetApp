@@ -10,6 +10,7 @@ const KEYS = {
   MONTHLY_BUDGET: 'monthly_budget',
   CALENDAR_VIEW_MODE: 'calendar_view_mode',
   LAST_HOLIDAY_SYNC: 'last_holiday_sync',
+  REMOTE_DB_SYNC_ENABLED: 'remote_db_sync_enabled',
 };
 
 export const getNickname = (): string | null => {
@@ -73,4 +74,12 @@ export const getManualInstallment = (yearMonthStr: string): number => {
 
 export const setManualInstallment = (yearMonthStr: string, amount: number): void => {
   storage.set(`manual_installment_${yearMonthStr}`, amount);
+};
+
+export const getRemoteDbSyncEnabled = (): boolean => {
+  return storage.getBoolean(KEYS.REMOTE_DB_SYNC_ENABLED) ?? false;
+};
+
+export const setRemoteDbSyncEnabled = (enabled: boolean): void => {
+  storage.set(KEYS.REMOTE_DB_SYNC_ENABLED, enabled);
 };

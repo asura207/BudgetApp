@@ -134,11 +134,17 @@ export const backupService = {
       // 1. 로컬 파일 백업 (기존 파일 삭제)
       await this.exportBackupToFile(true);
 
-      // 2. 원격 DB 백업
-      const result = await this.backupToRemoteDb();
-      if (result.success) {
+      // 2. 원격 DB 백업 (설정에서 활성화된 경우에만 실행)
+      const { getRemoteDbSyncEnabled } = require('../storage/mmkv');
+      if (getRemoteDbSyncEnabled()) {
+        const result = await this.backupToRemoteDb();
+        if (result.success) {
+          storage.set('last_daily_backup_date', todayStr);
+          console.log('✅ 매일 1회 원격 및 로컬 파일 백업 완료');
+        }
+      } else {
         storage.set('last_daily_backup_date', todayStr);
-        console.log('✅ 매일 1회 원격 및 로컬 파일 백업 완료');
+        console.log('✅ 매일 1회 로컬 파일 백업 완료 (원격 DB 미활성화)');
       }
     } catch (e) {
       console.warn('Daily auto backup failed:', e);

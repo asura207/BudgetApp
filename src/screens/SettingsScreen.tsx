@@ -12,6 +12,7 @@ import {
   Platform,
   Modal,
   NativeModules,
+  Switch,
 } from 'react-native';
 import dayjs from 'dayjs';
 import { useFocusEffect } from '@react-navigation/native';
@@ -63,6 +64,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [restoreModalVisible, setRestoreModalVisible] = useState(false);
 
   const [userKey, setUserKey] = useState('');
+  const [isRemoteSyncEnabled, setIsRemoteSyncEnabled] = useState(false);
 
   const loadSettingsData = useCallback(() => {
     const budget = require('../storage/mmkv').getMonthlyBudget(dayjs().format('YYYY-MM'));
@@ -73,6 +75,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     setCustomHolidays(list);
     setLastSync(getLastHolidaySync());
     setUserKey(require('../storage/userKeyService').getUserKey());
+    setIsRemoteSyncEnabled(require('../storage/mmkv').getRemoteDbSyncEnabled());
   }, []);
 
   useFocusEffect(
@@ -101,6 +104,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     } else {
       return `매월 ${rule.dayOfMonth}일`;
     }
+  };
+
+  const handleToggleRemoteSync = (value: boolean) => {
+    require('../storage/mmkv').setRemoteDbSyncEnabled(value);
+    setIsRemoteSyncEnabled(value);
   };
 
   const handleSaveBudget = () => {
@@ -433,15 +441,27 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🔑 사용자 고유 키값 (DB 동기화용)</Text>
+        <Text style={styles.sectionTitle}>🔑 사용자 고유 키값 및 자동 백업 설정</Text>
         <Text style={styles.sectionSub}>
           여러 유저가 자신의 데이터를 원격 DB에 안전하게 업로드할 수 있도록 발급된 고유 식별자입니다.
         </Text>
         <TextInput
-          style={[styles.input, { backgroundColor: '#F0F0F0', color: '#757575', fontWeight: 'bold', textAlign: 'center' }]}
+          style={[styles.input, { backgroundColor: '#F0F0F0', color: '#757575', fontWeight: 'bold', textAlign: 'center', marginBottom: 16 }]}
           value={userKey}
           editable={false}
         />
+        <View style={styles.switchRow}>
+          <Text style={styles.switchLabel}>☁️ 매일 1회 원격 DB 자동 백업 활성화</Text>
+          <Switch
+            value={isRemoteSyncEnabled}
+            onValueChange={handleToggleRemoteSync}
+            trackColor={{ false: '#E0E0E0', true: '#81C784' }}
+            thumbColor={isRemoteSyncEnabled ? '#4CAF50' : '#F5F5F5'}
+          />
+        </View>
+        <Text style={styles.metaText}>
+          활성화 시 매일 첫 앱 실행 또는 화면을 켤 때 로컬 파일과 원격 DB에 최신 데이터가 자동으로 교체 저장됩니다.
+        </Text>
       </View>
 
       {/* 4. 공휴일 동기화 */}
@@ -704,6 +724,17 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     fontSize: 14,
     color: '#212121',
+  },
+  switchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  switchLabel: {
+    fontSize: 14,
+    color: '#333333',
+    fontWeight: 'bold',
   },
   saveBtn: {
     backgroundColor: '#2196F3',
