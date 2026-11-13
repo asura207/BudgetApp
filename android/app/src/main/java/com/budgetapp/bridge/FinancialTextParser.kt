@@ -114,7 +114,8 @@ object FinancialTextParser {
     fun parse(
         rawBody: String,
         fallbackTimeMillis: Long = System.currentTimeMillis(),
-        sourceType: String = "SMS"
+        sourceType: String = "SMS",
+        packageName: String = ""
     ): ParsedPaymentResult {
         // 삼성 RCS JSON 포맷인 경우 TextView 텍스트 영역 추출
         val bodyToParse = extractTextFromRcsJson(rawBody)
@@ -137,6 +138,59 @@ object FinancialTextParser {
                 }
                 if (sourceUpper != "PUSH" && rule.applySms && bodyToParse.contains(rule.keyword)) {
                     return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
+                }
+            }
+        }
+
+        // 0-3. 토스(viva.republica.toss) 앱 푸시 중 KB국민카드 결제 알림 특화 파싱
+        if (packageName == "viva.republica.toss" && bodyToParse.contains("KB국민카드") && bodyToParse.contains("결제")) {
+            val lines = bodyToParse.split("\n", "\r").map { it.trim() }.filter { it.isNotBlank() }
+            if (lines.size >= 2) {
+                val amountMatcher = Pattern.compile("([0-9,]+)\\s*원\\s*결제").matcher(lines[0])
+                var amount = 0
+                if (amountMatcher.find()) {
+                    amount = amountMatcher.group(1)?.replace(",", "")?.toIntOrNull() ?: 0
+                }
+                
+                if (amount > 0) {
+                    val detailsLine = lines[1] // 예: "KB국민카드 | 반다이남코코리아㈜(3개월 할부)"
+                    val parts = detailsLine.split("|").map { it.trim() }
+                    if (parts.size >= 2) {
+                        var merchantPart = parts[1]
+                        var installmentType = "LUMP_SUM"
+                        var installmentMonths = 1
+                        
+                        // 할부 파싱
+                        val instMatcher = Pattern.compile("\\(([^)]+)\\)").matcher(merchantPart)
+                        while (instMatcher.find()) {
+                            val insideText = instMatcher.group(1) ?: ""
+                            if (insideText.contains("일시불")) {
+                                installmentType = "LUMP_SUM"
+                                merchantPart = merchantPart.replace(instMatcher.group(0) ?: "", "").trim()
+                            } else if (insideText.contains("할부")) {
+                                val monthMatcher = Pattern.compile("([0-9]+)\\s*개월").matcher(insideText)
+                                if (monthMatcher.find()) {
+                                    installmentType = "INSTALLMENT"
+                                    installmentMonths = monthMatcher.group(1)?.toIntOrNull() ?: 1
+                                }
+                                merchantPart = merchantPart.replace(instMatcher.group(0) ?: "", "").trim()
+                            }
+                        }
+                        
+                        val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(fallbackTimeMillis))
+                        val createdAtStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(fallbackTimeMillis))
+                        
+                        return ParsedPaymentResult(
+                            isPayment = true,
+                            cardCompany = "국민카드",
+                            amount = amount,
+                            merchant = merchantPart,
+                            dateStr = dateStr,
+                            createdAtStr = createdAtStr,
+                            installmentType = installmentType,
+                            installmentMonths = installmentMonths
+                        )
+                    }
                 }
             }
         }

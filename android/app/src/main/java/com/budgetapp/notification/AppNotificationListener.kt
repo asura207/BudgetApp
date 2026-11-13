@@ -87,7 +87,7 @@ class AppNotificationListener : NotificationListenerService() {
         if (isExcludedAppNotification(packageName, title, fullContent)) return
 
         // 3. 모든 카드사/금융 푸시 알림 실시간 결제 파싱 (PUSH 영역)
-        val result = FinancialTextParser.parse(fullContent, sbnObj.postTime, "PUSH")
+        val result = FinancialTextParser.parse(fullContent, sbnObj.postTime, "PUSH", packageName)
         if (result.isPayment) {
             FinancialParserModule.emitPaymentEvent(
                 dateStr = result.dateStr,
@@ -199,7 +199,7 @@ class AppNotificationListener : NotificationListenerService() {
                         // 파싱 및 결제 이벤트 등록
                         var isPayment = false
                         if (targetDateStr == "ALL" || postTime in startTime..endTime) {
-                            val result = FinancialTextParser.parse(fullContent, postTime, "PUSH")
+                            val result = FinancialTextParser.parse(fullContent, postTime, "PUSH", packageName)
                             isPayment = result.isPayment
                             if (result.isPayment) {
                                 FinancialParserModule.emitPaymentEvent(
