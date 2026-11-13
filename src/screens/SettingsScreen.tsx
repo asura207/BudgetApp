@@ -644,16 +644,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               activeOpacity={0.7}
               delayPressIn={0}
               onPress={async () => {
+                setRestoreModalVisible(false);
                 setIsSyncing(true);
-                const result = await backupService.restoreFromRemoteDb();
-                setIsSyncing(false);
-                if (result.success) {
-                  setRestoreModalVisible(false);
-                  loadSettingsData();
-                  Alert.alert('복구 성공', result.message);
-                } else {
-                  Alert.alert('복구 실패', result.message);
-                }
+                // 화면 전환(모달 닫힘)과 프로그레스 렌더링을 위해 약간의 딜레이
+                setTimeout(async () => {
+                  const result = await backupService.restoreFromRemoteDb();
+                  setIsSyncing(false);
+                  if (result.success) {
+                    loadSettingsData();
+                    Alert.alert('복구 성공', result.message);
+                  } else {
+                    Alert.alert('복구 실패', result.message);
+                  }
+                }, 100);
               }}
             >
               <Text style={styles.pickFileBtnText}>☁️ 원격 DB에서 복원</Text>
@@ -669,6 +672,17 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <Text style={{ color: '#666666', fontWeight: 'bold' }}>취소</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 작업 진행 프로그레스 바 (화면 전체 덮기) */}
+      <Modal visible={isSyncing} transparent animationType="fade">
+        <View style={styles.progressOverlay}>
+          <View style={styles.progressBox}>
+            <ActivityIndicator size="large" color="#2196F3" />
+            <Text style={styles.progressText}>데이터를 처리 중입니다...</Text>
+            <Text style={styles.progressSubText}>잠시만 기다려 주세요.</Text>
           </View>
         </View>
       </Modal>
@@ -899,5 +913,29 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
+  },
+  progressOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  progressBox: {
+    backgroundColor: '#FFFFFF',
+    padding: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    minWidth: 200,
+  },
+  progressText: {
+    marginTop: 16,
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#212121',
+  },
+  progressSubText: {
+    marginTop: 6,
+    fontSize: 13,
+    color: '#757575',
   },
 });
