@@ -208,12 +208,22 @@ export const backupService = {
       }
 
       // 1. 사용자 기본 설정 복구
-      if (data.user) {
-        if (data.user.nickname) setNickname(data.user.nickname);
-        if (data.user.nicknameCreatedAt) setNicknameCreatedAt(data.user.nicknameCreatedAt);
-        if (data.user.monthlyBudget > 0) setMonthlyBudget(data.user.monthlyBudget);
-        if (data.user.viewMode) setViewMode(data.user.viewMode as any);
-        if (data.user.userKey) require('../storage/userKeyService').setUserKey(data.user.userKey);
+      let userData = data.user as any;
+      if (Array.isArray(userData) && userData.length > 0) {
+        userData = userData[0];
+      }
+      if (userData && typeof userData === 'object') {
+        const nickname = userData.nickname;
+        const nicknameCreatedAt = userData.nicknameCreatedAt || userData.nickname_created_at;
+        const monthlyBudget = Number(userData.monthlyBudget || userData.monthly_budget || 0);
+        const viewMode = userData.viewMode || userData.view_mode;
+        const userKey = userData.userKey || userData.user_key;
+
+        if (nickname) setNickname(nickname);
+        if (nicknameCreatedAt) setNicknameCreatedAt(nicknameCreatedAt);
+        if (monthlyBudget > 0) setMonthlyBudget(monthlyBudget);
+        if (viewMode) setViewMode(viewMode as any);
+        if (userKey) require('../storage/userKeyService').setUserKey(userKey);
       }
 
       // 2. 파싱 예외 단어 먼저 복구 (네이버페이는 applySms가 false이므로 문자는 허용)
@@ -306,9 +316,23 @@ export const backupService = {
 
       // 7. 수동 입력 할부금 복구
       if (data.manualInstallments && typeof data.manualInstallments === 'object') {
-        Object.keys(data.manualInstallments).forEach((ym) => {
-          setManualInstallment(ym, data.manualInstallments[ym]);
-        });
+        if (Array.isArray(data.manualInstallments)) {
+          data.manualInstallments.forEach((item: any) => {
+            const ym = item.year_month || item.yearMonth;
+            const amt = Number(item.amount);
+            if (ym && !isNaN(amt)) {
+              setManualInstallment(ym, amt);
+            }
+          });
+        } else {
+          Object.keys(data.manualInstallments).forEach((ym) => {
+            const val = (data.manualInstallments as any)[ym];
+            const amt = typeof val === 'object' ? Number(val.amount) : Number(val);
+            if (!isNaN(amt)) {
+              setManualInstallment(ym, amt);
+            }
+          });
+        }
       }
 
       // 8. 복구 완료 후 applySms가 true인 진짜 파싱 예외 단어에 대해서만 정제 삭제 실행 (네이버페이는 보존)
