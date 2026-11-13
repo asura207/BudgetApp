@@ -675,14 +675,69 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                 }
             }
 
-            // 푸시 알림 히스토리 분석
+            // 푸시 알림 히스토리 분석 (Status Bar 활성 알림)
             val pushCount = AppNotificationListener.syncPushHistoryForDate(targetDateStr)
-            logBuilder.append("\nPush Notification Sync Count: ").append(pushCount.toString()).append("\n")
-            logBuilder.append("Total Parsed Card Transactions: ").append((parsedCount + pushCount).toString()).append("\n")
+            
+            // 5. 로컬 DB의 app_notifications_raw 테이블 조회 (과거 수집된 보관 푸시 재파싱)
+            logBuilder.append("\n--- 5. Querying app_notifications_raw (Saved Push Logs) ---\n")
+            var savedPushCount = 0
+            try {
+                val dbPath = reactContext.getDatabasePath("budget_app.db")
+                if (dbPath.exists()) {
+                    val db = android.database.sqlite.SQLiteDatabase.openDatabase(dbPath.absolutePath, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY)
+                    val cursor = db.rawQuery("SELECT package_name, raw_content, post_time FROM app_notifications_raw WHERE is_bookmarked = 1", null)
+                    cursor?.use { c ->
+                        val pkgIdx = c.getColumnIndex("package_name")
+                        val contentIdx = c.getColumnIndex("raw_content")
+                        val timeIdx = c.getColumnIndex("post_time")
+                        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+
+                        while (c.moveToNext()) {
+                            val pkgName = if (pkgIdx != -1) c.getString(pkgIdx) ?: "" else ""
+                            val content = if (contentIdx != -1) c.getString(contentIdx) ?: "" else ""
+                            val timeStr = if (timeIdx != -1) c.getString(timeIdx) ?: "" else ""
+
+                            if (content.isBlank() || processedBodies.contains(content)) continue
+                            processedBodies.add(content)
+                            scannedCount++
+
+                            val msgTime = try { sdf.parse(timeStr)?.time ?: System.currentTimeMillis() } catch (e: Exception) { System.currentTimeMillis() }
+                            
+                            val result = FinancialTextParser.parse(content, msgTime, "PUSH", pkgName)
+                            if (result.isPayment) {
+                                val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" ||
+                                        (monthStartDateStr.isNotBlank() && result.dateStr >= monthStartDateStr) ||
+                                        result.dateStr == targetDateStr
+
+                                if (matchDate) {
+                                    FinancialParserModule.emitPaymentEvent(
+                                        dateStr = result.dateStr,
+                                        amount = result.amount,
+                                        merchant = result.merchant,
+                                        paymentType = "CARD",
+                                        cardCompany = result.cardCompany,
+                                        installmentType = result.installmentType,
+                                        installmentMonths = result.installmentMonths,
+                                        createdAtStr = result.createdAtStr
+                                    )
+                                    savedPushCount++
+                                }
+                            }
+                        }
+                    }
+                    db.close()
+                }
+            } catch (e: Exception) {
+                logBuilder.append("Error querying app_notifications_raw: ").append(e.message ?: "").append("\n")
+            }
+
+            logBuilder.append("\nPush Notification Sync Count (Active): ").append(pushCount.toString()).append("\n")
+            logBuilder.append("Push Notification Sync Count (Saved): ").append(savedPushCount.toString()).append("\n")
+            logBuilder.append("Total Parsed Card Transactions: ").append((parsedCount + pushCount + savedPushCount).toString()).append("\n")
             logBuilder.append("=========================================\n")
 
             val resultMap: WritableMap = Arguments.createMap().apply {
-                putInt("count", parsedCount + pushCount)
+                putInt("count", parsedCount + pushCount + savedPushCount)
                 putInt("scannedCount", scannedCount)
                 putString("debugLog", logBuilder.toString())
             }
