@@ -58,3 +58,20 @@ export const subscribeNativePaymentEvents = (
     }
   );
 };
+
+export const syncMissedBackgroundEvents = async () => {
+  try {
+    const { NativeModules } = require('react-native');
+    const { getNicknameCreatedAt } = require('../storage/mmkv');
+
+    if (NativeModules.SmsHistoryParserModule && typeof NativeModules.SmsHistoryParserModule.syncSmsHistoryForDate === 'function') {
+      const nicknameDate = getNicknameCreatedAt() || 'ALL';
+      const result = await NativeModules.SmsHistoryParserModule.syncSmsHistoryForDate(nicknameDate);
+      if (result && result.count > 0) {
+        console.log(`🔄 백그라운드 유실 푸시/SMS 동기화 완료: ${result.count}건 복구`);
+      }
+    }
+  } catch (e) {
+    console.warn('Background event sync error:', e);
+  }
+};
