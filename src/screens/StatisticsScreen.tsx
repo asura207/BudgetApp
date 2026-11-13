@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,16 +8,15 @@ import {
   DeviceEventEmitter,
 } from 'react-native';
 import dayjs from 'dayjs';
-import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import { useFocusEffect } from '@react-navigation/native';
 import { BarChart, LineChart } from 'react-native-gifted-charts';
 import { transactionDao } from '../database/transactionDao';
 import { recurringDao } from '../database/recurringDao';
+import { getRecurringOccurrencesForMonth } from '../utils/recurringUtils';
 import { getNicknameCreatedAt, getManualInstallment, getMonthlyBudget } from '../storage/mmkv';
-import { Transaction } from '../types/budget';
+import { RecurringRule, Transaction } from '../types/budget';
 
-dayjs.extend(isSameOrAfter);
 dayjs.extend(isSameOrBefore);
 
 export const StatisticsScreen = () => {
@@ -49,10 +48,16 @@ export const StatisticsScreen = () => {
   const [selectedYearTab, setSelectedYearTab] = useState<number>(currentYearNum);
 
   const [yearTransactions, setYearTransactions] = useState<Transaction[]>([]);
+  const [recurringRules, setRecurringRules] = useState<RecurringRule[]>([]);
+  const [allInstallmentTxs, setAllInstallmentTxs] = useState<Transaction[]>([]);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const loadStatsData = useCallback(() => {
     const txs = transactionDao.getTransactionsByYear(String(selectedYear));
     setYearTransactions(txs);
+    setRecurringRules(recurringDao.getAllRecurringRules());
+    setAllInstallmentTxs(transactionDao.getAllInstallmentTransactions());
+    setRefreshTick((v) => v + 1);
   }, [selectedYear]);
 
   // 화면 진입/활성화 및 거래 변경 이벤트 시 데이터 실시간 자동 재집계
@@ -72,89 +77,68 @@ export const StatisticsScreen = () => {
     return () => sub.remove();
   }, [loadStatsData]);
 
-  // 정기 결제/적금 내역 불러오기
-  const recurringRules = recurringDao.getAllRecurringRules();
+  // 1~12월 각 월별 총 지출 및 적금 집계 (할부 분할액 & 공휴일/주말 이관 반영 정기결제)
+  const monthlyExpenseData = useMemo(() => {
+    return Array.from({ length: 12 }, (_, i) => {
+      const m = i + 1;
+      const monthPrefix = `${selectedYear}-${String(m).padStart(2, '0')}`;
 
-  // 1~12월 각 월별 총 지출 및 적금 집계 (할부인 경우 월 분할 청구액 반영)
-  const monthlyExpenseData = Array.from({ length: 12 }, (_, i) => {
-    const m = i + 1;
-    const monthPrefix = `${selectedYear}-${String(m).padStart(2, '0')}`;
-    const daysInMonth = dayjs(monthPrefix, 'YYYY-MM').daysInMonth();
+      // 1. 실제 DB 내역 (할부 청구액 계산)
+      const mtxs = yearTransactions.filter((tx) => tx.date.startsWith(monthPrefix));
 
-    // 1. 실제 DB 내역 (할부 청구액 계산)
-    const mtxs = yearTransactions.filter((tx) => tx.date.startsWith(monthPrefix));
+      let expense = mtxs
+        .filter((tx) => tx.categoryType === 'EXPENSE')
+        .reduce((sum, tx) => {
+          if (tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1) {
+            return sum + Math.round(tx.amount / tx.installmentMonths);
+          }
+          return sum + tx.amount;
+        }, 0);
 
-    let expense = mtxs
-      .filter((tx) => tx.categoryType === 'EXPENSE')
-      .reduce((sum, tx) => {
-        if (tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1) {
+      let savings = mtxs
+        .filter(
+          (tx) =>
+            tx.categoryType === 'SAVINGS' &&
+            dayjs(tx.date).isSameOrBefore(dayjs(todayStr), 'day')
+        )
+        .reduce((sum, tx) => sum + tx.amount, 0);
+
+      // 2. 정기결제/적금 내역 반영 (실효일 기준 오늘 날짜 이하만 누적, 월말 이관 포함)
+      const occurrences = getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr);
+      occurrences.forEach(({ rule }) => {
+        if (rule.categoryType === 'EXPENSE') {
+          expense += rule.amount;
+        } else if (rule.categoryType === 'SAVINGS') {
+          savings += rule.amount;
+        }
+      });
+
+      return { month: m, monthName: `${m}월`, expense, savings };
+    });
+  }, [selectedYear, yearTransactions, recurringRules, todayStr]);
+
+  // 1~12월 월별 할부 청구금액 선 그래프(LineChart) 데이터 계산 (전월/전년도 시작 잔여 할부 + 수동 할부금)
+  const lineChartData = useMemo(() => {
+    return Array.from({ length: 12 }, (_, i) => {
+      const m = i + 1;
+      const monthPrefix = `${selectedYear}-${String(m).padStart(2, '0')}`;
+      const targetMoment = dayjs(`${monthPrefix}-01`, 'YYYY-MM-DD').startOf('month');
+
+      const autoInstallment = allInstallmentTxs.reduce((sum, tx) => {
+        const txMoment = dayjs(tx.date, 'YYYY-MM-DD').startOf('month');
+        const monthsElapsed = targetMoment.diff(txMoment, 'month');
+        if (monthsElapsed >= 0 && monthsElapsed < tx.installmentMonths) {
           return sum + Math.round(tx.amount / tx.installmentMonths);
         }
-        return sum + tx.amount;
+        return sum;
       }, 0);
 
-    let savings = mtxs
-      .filter(
-        (tx) =>
-          tx.categoryType === 'SAVINGS' &&
-          dayjs(tx.date).isSameOrBefore(dayjs(todayStr), 'day')
-      )
-      .reduce((sum, tx) => sum + tx.amount, 0);
+      const manualInstallment = getManualInstallment(monthPrefix);
+      const totalInstallment = autoInstallment + manualInstallment;
 
-    // 2. 정기결제/적금 내역 반영 (시작일 이후 AND 오늘 날짜 이하만 누적)
-    recurringRules.forEach((rule) => {
-      const ruleStartStr = rule.startDate || `${selectedYear}-01-01`;
-      const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
-
-      for (let day = 1; day <= daysInMonth; day++) {
-        const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
-        let applies = false;
-
-        if (
-          dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
-          dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
-        ) {
-          if (repeatType === 'DAILY') {
-            applies = true;
-          } else if (repeatType === 'MONTHLY_DAY') {
-            applies = day === rule.dayOfMonth;
-          } else if (repeatType === 'WEEKLY_DAYS') {
-            const dayOfWeek = dayjs(rawDate).day();
-            applies = (rule.daysOfWeek || []).includes(dayOfWeek);
-          }
-        }
-
-        if (applies) {
-          if (rule.categoryType === 'EXPENSE') {
-            expense += rule.amount;
-          } else if (rule.categoryType === 'SAVINGS') {
-            savings += rule.amount;
-          }
-        }
-      }
+      return { value: totalInstallment / 10000, label: `${m}월` };
     });
-
-    return { month: m, monthName: `${m}월`, expense, savings };
-  });
-
-  // 1~12월 월별 할부 청구금액 선 그래프(LineChart) 데이터 계산 (자동 파싱 할부금 + 사용자 입력 수동 할부금)
-  const lineChartData = Array.from({ length: 12 }, (_, i) => {
-    const m = i + 1;
-    const monthPrefix = `${selectedYear}-${String(m).padStart(2, '0')}`;
-    const mtxs = yearTransactions.filter(
-      (tx) => tx.date.startsWith(monthPrefix) && tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1
-    );
-
-    const autoInstallment = mtxs.reduce(
-      (sum, tx) => sum + Math.round(tx.amount / tx.installmentMonths),
-      0
-    );
-
-    const manualInstallment = getManualInstallment(monthPrefix);
-    const totalInstallment = autoInstallment + manualInstallment;
-
-    return { value: totalInstallment / 10000, label: `${m}월` };
-  });
+  }, [selectedYear, allInstallmentTxs, refreshTick]);
 
   // gifted-charts 차트 바 데이터 생성
   const barData = monthlyExpenseData.map((d) => ({
@@ -191,39 +175,15 @@ export const StatisticsScreen = () => {
       totalMonthExpense += amountToUse;
     });
 
-    // 정기 결제 카드 지출 반영 (오늘 이하 날짜만)
-    recurringRules.forEach((rule) => {
+    // 정기 결제 카드 지출 반영 (실효일 기준 오늘 이하 날짜만)
+    getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr).forEach(({ rule }) => {
       if (rule.categoryType === 'EXPENSE') {
-        const ruleStartStr = rule.startDate || `${selectedYear}-01-01`;
-        const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
         const companyName =
           rule.paymentType === 'CARD'
             ? rule.cardCompany || '기타 카드'
             : '💵 현금';
-
-        for (let day = 1; day <= daysInMonth; day++) {
-          const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
-          let applies = false;
-
-          if (
-            dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
-            dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
-          ) {
-            if (repeatType === 'DAILY') {
-              applies = true;
-            } else if (repeatType === 'MONTHLY_DAY') {
-              applies = day === rule.dayOfMonth;
-            } else if (repeatType === 'WEEKLY_DAYS') {
-              const dayOfWeek = dayjs(rawDate).day();
-              applies = (rule.daysOfWeek || []).includes(dayOfWeek);
-            }
-          }
-
-          if (applies) {
-            companyMap[companyName] = (companyMap[companyName] || 0) + rule.amount;
-            totalMonthExpense += rule.amount;
-          }
-        }
+        companyMap[companyName] = (companyMap[companyName] || 0) + rule.amount;
+        totalMonthExpense += rule.amount;
       }
     });
 
@@ -259,36 +219,12 @@ export const StatisticsScreen = () => {
       totalMonthSavings += tx.amount;
     });
 
-    // 정기 적금 내역 반영 (오늘 이하 날짜만)
-    recurringRules.forEach((rule) => {
+    // 정기 적금 내역 반영 (실효일 기준 오늘 이하 날짜만)
+    getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr).forEach(({ rule }) => {
       if (rule.categoryType === 'SAVINGS') {
-        const ruleStartStr = rule.startDate || `${selectedYear}-01-01`;
-        const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
         const name = rule.merchant || '정기 적금';
-
-        for (let day = 1; day <= daysInMonth; day++) {
-          const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
-          let applies = false;
-
-          if (
-            dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
-            dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
-          ) {
-            if (repeatType === 'DAILY') {
-              applies = true;
-            } else if (repeatType === 'MONTHLY_DAY') {
-              applies = day === rule.dayOfMonth;
-            } else if (repeatType === 'WEEKLY_DAYS') {
-              const dayOfWeek = dayjs(rawDate).day();
-              applies = (rule.daysOfWeek || []).includes(dayOfWeek);
-            }
-          }
-
-          if (applies) {
-            savingsMap[name] = (savingsMap[name] || 0) + rule.amount;
-            totalMonthSavings += rule.amount;
-          }
-        }
+        savingsMap[name] = (savingsMap[name] || 0) + rule.amount;
+        totalMonthSavings += rule.amount;
       }
     });
 
@@ -325,46 +261,20 @@ export const StatisticsScreen = () => {
       totalExpense += amountToUse;
     });
 
-    // 정기 결제 카드 지출 반영 (오늘 이하 날짜만)
-    recurringRules.forEach((rule) => {
-      if (rule.categoryType === 'EXPENSE') {
-        const ruleStartStr = rule.startDate || `${yearNum}-01-01`;
-        const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
-        const companyName =
-          rule.paymentType === 'CARD'
-            ? rule.cardCompany || '기타 카드'
-            : '💵 현금';
-
-        for (let m = 1; m <= 12; m++) {
-          const monthPrefix = `${yearNum}-${String(m).padStart(2, '0')}`;
-          const daysInMonth = dayjs(monthPrefix, 'YYYY-MM').daysInMonth();
-
-          for (let day = 1; day <= daysInMonth; day++) {
-            const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
-            let applies = false;
-
-            if (
-              dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
-              dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
-            ) {
-              if (repeatType === 'DAILY') {
-                applies = true;
-              } else if (repeatType === 'MONTHLY_DAY') {
-                applies = day === rule.dayOfMonth;
-              } else if (repeatType === 'WEEKLY_DAYS') {
-                const dayOfWeek = dayjs(rawDate).day();
-                applies = (rule.daysOfWeek || []).includes(dayOfWeek);
-              }
-            }
-
-            if (applies) {
-              companyMap[companyName] = (companyMap[companyName] || 0) + rule.amount;
-              totalExpense += rule.amount;
-            }
-          }
+    // 정기 결제 카드 지출 반영 (실효일 기준 오늘 이하 날짜만)
+    for (let m = 1; m <= 12; m++) {
+      const monthPrefix = `${yearNum}-${String(m).padStart(2, '0')}`;
+      getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr).forEach(({ rule }) => {
+        if (rule.categoryType === 'EXPENSE') {
+          const companyName =
+            rule.paymentType === 'CARD'
+              ? rule.cardCompany || '기타 카드'
+              : '💵 현금';
+          companyMap[companyName] = (companyMap[companyName] || 0) + rule.amount;
+          totalExpense += rule.amount;
         }
-      }
-    });
+      });
+    }
 
     const result = Object.keys(companyMap).map((company) => {
       const amount = companyMap[company];
@@ -394,43 +304,17 @@ export const StatisticsScreen = () => {
       totalSavings += tx.amount;
     });
 
-    // 정기 적금/저축 내역 반영 (조회 당일 포함 이전 일의 기록만 합산)
-    recurringRules.forEach((rule) => {
-      if (rule.categoryType === 'SAVINGS') {
-        const ruleStartStr = rule.startDate || `${yearNum}-01-01`;
-        const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
-        const name = rule.merchant || '정기 적금';
-
-        for (let m = 1; m <= 12; m++) {
-          const monthPrefix = `${yearNum}-${String(m).padStart(2, '0')}`;
-          const daysInMonth = dayjs(monthPrefix, 'YYYY-MM').daysInMonth();
-
-          for (let day = 1; day <= daysInMonth; day++) {
-            const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
-            let applies = false;
-
-            if (
-              dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
-              dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
-            ) {
-              if (repeatType === 'DAILY') {
-                applies = true;
-              } else if (repeatType === 'MONTHLY_DAY') {
-                applies = day === rule.dayOfMonth;
-              } else if (repeatType === 'WEEKLY_DAYS') {
-                const dayOfWeek = dayjs(rawDate).day();
-                applies = (rule.daysOfWeek || []).includes(dayOfWeek);
-              }
-            }
-
-            if (applies) {
-              savingsMap[name] = (savingsMap[name] || 0) + rule.amount;
-              totalSavings += rule.amount;
-            }
-          }
+    // 정기 적금/저축 내역 반영 (실효일 기준 조회 당일 포함 이전 일의 기록만 합산)
+    for (let m = 1; m <= 12; m++) {
+      const monthPrefix = `${yearNum}-${String(m).padStart(2, '0')}`;
+      getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr).forEach(({ rule }) => {
+        if (rule.categoryType === 'SAVINGS') {
+          const name = rule.merchant || '정기 적금';
+          savingsMap[name] = (savingsMap[name] || 0) + rule.amount;
+          totalSavings += rule.amount;
         }
-      }
-    });
+      });
+    }
 
     const result = Object.keys(savingsMap).map((name) => {
       const amount = savingsMap[name];
@@ -462,43 +346,17 @@ export const StatisticsScreen = () => {
       )
       .reduce((sum, tx) => sum + tx.amount, 0);
 
-    // 정기결제/적금 내역 반영 (시작일 이후 AND 조회 당일 포함 이전 일만 누적)
-    recurringRules.forEach((rule) => {
-      const ruleStartStr = rule.startDate || `${y}-01-01`;
-      const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
-
-      for (let m = 1; m <= 12; m++) {
-        const monthPrefix = `${y}-${String(m).padStart(2, '0')}`;
-        const daysInMonth = dayjs(monthPrefix, 'YYYY-MM').daysInMonth();
-
-        for (let day = 1; day <= daysInMonth; day++) {
-          const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
-          let applies = false;
-
-          if (
-            dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
-            dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
-          ) {
-            if (repeatType === 'DAILY') {
-              applies = true;
-            } else if (repeatType === 'MONTHLY_DAY') {
-              applies = day === rule.dayOfMonth;
-            } else if (repeatType === 'WEEKLY_DAYS') {
-              const dayOfWeek = dayjs(rawDate).day();
-              applies = (rule.daysOfWeek || []).includes(dayOfWeek);
-            }
-          }
-
-          if (applies) {
-            if (rule.categoryType === 'EXPENSE') {
-              expense += rule.amount;
-            } else if (rule.categoryType === 'SAVINGS') {
-              savings += rule.amount;
-            }
-          }
+    // 정기결제/적금 내역 반영 (실효일 기준 조회 당일 포함 이전 일만 누적)
+    for (let m = 1; m <= 12; m++) {
+      const monthPrefix = `${y}-${String(m).padStart(2, '0')}`;
+      getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr).forEach(({ rule }) => {
+        if (rule.categoryType === 'EXPENSE') {
+          expense += rule.amount;
+        } else if (rule.categoryType === 'SAVINGS') {
+          savings += rule.amount;
         }
-      }
-    });
+      });
+    }
 
     return { year: `${y}년`, yearNum: y, expense, savings };
   });
@@ -661,7 +519,7 @@ export const StatisticsScreen = () => {
           {/* 지출 막대 차트 */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>📊 1~12월 지출 차트 (단위: 만원)</Text>
-            <View style={{ marginTop: 16 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 16 }}>
               <BarChart
                 data={barData}
                 barWidth={16}
@@ -674,13 +532,13 @@ export const StatisticsScreen = () => {
                 yAxisColor="#E0E0E0"
                 noOfSections={4}
               />
-            </View>
+            </ScrollView>
           </View>
 
           {/* 월별 할부금 변화량 선 그래프 (Line Chart) */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>📈 1~12월 월별 할부금 변화량 추이 (단위: 만원)</Text>
-            <View style={{ marginTop: 16 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 16 }}>
               <LineChart
                 data={lineChartData}
                 color="#2196F3"
@@ -697,7 +555,7 @@ export const StatisticsScreen = () => {
                 yAxisColor="#E0E0E0"
                 noOfSections={4}
               />
-            </View>
+            </ScrollView>
           </View>
 
           {/* 수치 요약 */}

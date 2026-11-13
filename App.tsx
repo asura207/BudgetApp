@@ -4,13 +4,28 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { subscribeNativePaymentEvents, syncMissedBackgroundEvents } from './src/services/nativeParserBridge';
 import { ErrorBoundary } from './src/components/common/ErrorBoundary';
-import { getDb } from './src/database/db';
+import { getDb, initDatabase } from './src/database/db';
 import { backupService } from './src/services/backupService';
+import { holidayService } from './src/services/holidayService';
 
 const App = () => {
   useEffect(() => {
-    // 0. 앱 최초 실행 시 백그라운드 유실 이벤트 점검 및 자동 백업 실행
-    syncMissedBackgroundEvents().then(() => DeviceEventEmitter.emit('TRANSACTION_UPDATED'));
+    // 0. SQLite 스키마 보장, 공휴일 시드 초기화, 백그라운드 유실 이벤트 점검 및 자동 백업 실행
+    try {
+      initDatabase();
+    } catch (e) {
+      console.warn('initDatabase error:', e);
+    }
+
+    holidayService
+      .ensureHolidaysInitialized()
+      .then(() => DeviceEventEmitter.emit('TRANSACTION_UPDATED'))
+      .catch((e) => console.warn('ensureHolidaysInitialized error:', e));
+
+    syncMissedBackgroundEvents()
+      .then(() => DeviceEventEmitter.emit('TRANSACTION_UPDATED'))
+      .catch((e) => console.warn('syncMissedBackgroundEvents error:', e));
+
     backupService.runDailyAutoBackup();
 
     // 1. 네이티브 자동 파싱 결제 이벤트 구독

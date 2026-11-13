@@ -10,7 +10,7 @@ export const recurringDao = {
     const daysOfWeekJson = JSON.stringify(rule.daysOfWeek || []);
 
     safeDbExecute(
-      `INSERT INTO recurring_rules (id, day_of_month, is_daily, repeat_type, days_of_week, start_date, category_type, amount, merchant, payment_type, card_company, installment_type)
+      `INSERT OR REPLACE INTO recurring_rules (id, day_of_month, is_daily, repeat_type, days_of_week, start_date, category_type, amount, merchant, payment_type, card_company, installment_type)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       [
         rule.id,

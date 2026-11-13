@@ -18,10 +18,13 @@ export const getDb = (): QuickSQLiteConnection => {
   try {
     if (!dbInstance) {
       dbInstance = open({ name: 'budget_app.db' });
+    } else {
+      // C++ SQLite 핸들 유효성 헬스체크 (익일/백그라운드 복귀 시 끊긴 핸들 자동 재연결)
+      dbInstance.execute('SELECT 1;');
     }
     return dbInstance;
   } catch (e) {
-    console.warn('⚠️ SQLite DB 오픈 오류, 재연결을 시도합니다:', e);
+    console.warn('⚠️ SQLite DB 오픈/헬스체크 오류, 재연결을 시도합니다:', e);
     return resetDbConnection();
   }
 };

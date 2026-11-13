@@ -15,7 +15,8 @@ import {
 } from '../storage/mmkv';
 import { transactionDao } from '../database/transactionDao';
 import { recurringDao } from '../database/recurringDao';
-import { getNextBusinessDay, isRedDay } from '../utils/dateUtils';
+import { isRedDay } from '../utils/dateUtils';
+import { getRecurringOccurrencesForMonth } from '../utils/recurringUtils';
 import {
   calculateDailyBudget,
   getBudgetStatusColor,
@@ -231,67 +232,65 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
     })
   ).current;
 
+  // 해당 날짜가 속한 주의 월요일 계산 (월~일 순서)
+  const getStartOfWeekMonday = (baseDate: dayjs.Dayjs) => {
+    const dayOfWeek = baseDate.day(); // 0: Sun, 1: Mon, ... 6: Sat
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    return baseDate.add(diffToMonday, 'day');
+  };
+
+  const startOfWeekMonday = getStartOfWeekMonday(selectedWeekDate);
+  const endOfWeekSunday = startOfWeekMonday.add(6, 'day');
+  const weekStartYm = startOfWeekMonday.format('YYYY-MM');
+  const weekEndYm = endOfWeekSunday.format('YYYY-MM');
+  const activeBudgetYearMonth = viewMode === 'WEEKLY' ? selectedWeekDate.format('YYYY-MM') : currentYearMonth;
+
   const loadCalendarData = useCallback(() => {
-    const budget = getMonthlyBudget(currentYearMonth);
+    const budget = getMonthlyBudget(activeBudgetYearMonth);
     setBudget(budget);
 
     // 수동 추가 입력 할부금 로드
     const manualVal = getManualInstallment(currentYearMonth);
     setManualInstallmentStr(manualVal > 0 ? formatNumberWithComma(manualVal) : '');
 
-    // 1. 저장된 실제 거래 내역 조회 (당월)
-    const txs = transactionDao.getTransactionsByMonth(currentYearMonth);
+    // 조회 대상 월 목록 (월간 뷰는 당월, 주간 뷰는 주간 범위가 걸친 모든 월 포함)
+    const targetMonths = Array.from(
+      new Set(
+        viewMode === 'WEEKLY'
+          ? [currentYearMonth, weekStartYm, weekEndYm]
+          : [currentYearMonth]
+      )
+    );
 
-    // 2. 정기 결제 내역 합산
     const recurringRules = recurringDao.getAllRecurringRules();
-    const daysInMonth = dayjs(currentYearMonth, 'YYYY-MM').daysInMonth();
-
     const expenseTotals: { [date: string]: number } = {};
     const savingsTotals: { [date: string]: number } = {};
 
-    // DB 거래 내역 반영 (할부인 경우 월 분할 청구액을 쓴돈으로 반영)
-    txs.forEach((tx) => {
-      if (tx.categoryType === 'EXPENSE') {
-        if (tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1) {
-          const monthlyAmount = Math.round(tx.amount / tx.installmentMonths);
-          expenseTotals[tx.date] = (expenseTotals[tx.date] || 0) + monthlyAmount;
-        } else {
-          expenseTotals[tx.date] = (expenseTotals[tx.date] || 0) + tx.amount;
-        }
-      } else if (tx.categoryType === 'SAVINGS') {
-        savingsTotals[tx.date] = (savingsTotals[tx.date] || 0) + tx.amount;
-      }
-    });
-
-    // 정기 결제 규칙 반영
-    recurringRules.forEach((rule) => {
-      const ruleStartStr = rule.startDate || `${currentYearMonth}-01`;
-      const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
-
-      for (let day = 1; day <= daysInMonth; day++) {
-        const rawDate = `${currentYearMonth}-${String(day).padStart(2, '0')}`;
-        let applies = false;
-
-        if (dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
-          if (repeatType === 'DAILY') {
-            applies = true;
-          } else if (repeatType === 'MONTHLY_DAY') {
-            applies = day === rule.dayOfMonth;
-          } else if (repeatType === 'WEEKLY_DAYS') {
-            const dayOfWeek = dayjs(rawDate).day(); // 0:일, 1:월, ... 6:토
-            applies = (rule.daysOfWeek || []).includes(dayOfWeek);
+    targetMonths.forEach((ym) => {
+      // 1. 저장된 실제 거래 내역 조회
+      const txs = transactionDao.getTransactionsByMonth(ym);
+      txs.forEach((tx) => {
+        if (tx.categoryType === 'EXPENSE') {
+          if (tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1) {
+            const monthlyAmount = Math.round(tx.amount / tx.installmentMonths);
+            expenseTotals[tx.date] = (expenseTotals[tx.date] || 0) + monthlyAmount;
+          } else {
+            expenseTotals[tx.date] = (expenseTotals[tx.date] || 0) + tx.amount;
           }
+        } else if (tx.categoryType === 'SAVINGS') {
+          savingsTotals[tx.date] = (savingsTotals[tx.date] || 0) + tx.amount;
         }
+      });
 
-        if (applies) {
-          if (rule.categoryType === 'EXPENSE') {
-            const effectiveDate = getNextBusinessDay(rawDate, 'EXPENSE');
-            expenseTotals[effectiveDate] = (expenseTotals[effectiveDate] || 0) + rule.amount;
-          } else if (rule.categoryType === 'SAVINGS') {
-            savingsTotals[rawDate] = (savingsTotals[rawDate] || 0) + rule.amount;
-          }
+      // 2. 정기 결제 규칙 반영 (전월 말 공휴일/주말 이관분 포함)
+      const occurrences = getRecurringOccurrencesForMonth(recurringRules, ym);
+      occurrences.forEach(({ rule, effectiveDate }) => {
+        if (rule.categoryType === 'EXPENSE') {
+          expenseTotals[effectiveDate] = (expenseTotals[effectiveDate] || 0) + rule.amount;
+        } else if (rule.categoryType === 'SAVINGS') {
+          savingsTotals[effectiveDate] = (savingsTotals[effectiveDate] || 0) + rule.amount;
         }
-      }
+      });
     });
 
     // 3. DB의 모든 할부 결제 내역을 스캔하여 잔여 할부 회차가 남아있는 건만 필터링 (12개월 초과 장기 할부 포함)
@@ -345,7 +344,7 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
     setDailyExpenseTotals(expenseTotals);
     setDailySavingsTotals(savingsTotals);
     setThisMonthInstallmentTotal(autoSum + manualVal);
-  }, [currentYearMonth]);
+  }, [currentYearMonth, viewMode, weekStartYm, weekEndYm, activeBudgetYearMonth]);
 
   // 화면 활성화(포커스) 및 거래/정기결제 변경 이벤트 발생 시 실시간 자동 재로드
   useFocusEffect(
@@ -370,21 +369,12 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
     const val = parseNumberFromComma(manualInstallmentStr);
     const parsed = isNaN(val) ? 0 : val;
     setManualInstallment(currentYearMonth, parsed);
-    Alert.alert('성공', `${currentYearMonth}월 수동 입력 할부금이 저장되었습니다.`);
+    const labelYm = dayjs(`${currentYearMonth}-01`, 'YYYY-MM-DD').format('YYYY년 M월');
+    Alert.alert('성공', `${labelYm} 수동 입력 할부금이 저장되었습니다.`);
     loadCalendarData();
   };
 
-  const dailyBudget = calculateDailyBudget(monthlyBudget, currentYearMonth);
-
-  // 해당 날짜가 속한 주의 월요일 계산 (월~일 순서)
-  const getStartOfWeekMonday = (baseDate: dayjs.Dayjs) => {
-    const dayOfWeek = baseDate.day(); // 0: Sun, 1: Mon, ... 6: Sat
-    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    return baseDate.add(diffToMonday, 'day');
-  };
-
-  const startOfWeekMonday = getStartOfWeekMonday(selectedWeekDate);
-  const endOfWeekSunday = startOfWeekMonday.add(6, 'day');
+  const dailyBudget = calculateDailyBudget(monthlyBudget, activeBudgetYearMonth);
 
   // 주간 뷰 계산 (해당 주 월~일 총 지출)
   let weekSpent = 0;
@@ -395,7 +385,7 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
   const weeklyRemaining = calculateWeeklyRemainingBudget(
     monthlyBudget,
     weekSpent,
-    currentYearMonth
+    activeBudgetYearMonth
   );
 
   // 캘린더 날짜 셀 내의 커스텀 금액 텍스트 가독성 정제 함수

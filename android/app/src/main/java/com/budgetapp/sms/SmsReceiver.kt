@@ -16,7 +16,8 @@ class SmsReceiver : BroadcastReceiver() {
 
             val fullBody = messages.joinToString("") { it.messageBody ?: "" }
             if (fullBody.isNotBlank()) {
-                val result = FinancialTextParser.parse(fullBody)
+                FinancialTextParser.loadExceptionsFromDb(context)
+                val result = FinancialTextParser.parse(fullBody, System.currentTimeMillis(), "SMS")
                 if (result.isPayment) {
                     FinancialParserModule.emitPaymentEvent(
                         dateStr = result.dateStr,

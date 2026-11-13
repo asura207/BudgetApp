@@ -193,3 +193,23 @@
   - `MainCalendarScreen.tsx` & `DailyDetailScreen.tsx`: 날짜 셀(`TouchableOpacity`), 거래 카드(`Pressable`), 스크롤 뷰(`ScrollView`/`FlatList`) 위에서 슬라이드할 때 터치가 뺏기거나 취소되지 않도록 `onMoveShouldSetPanResponderCapture`, `onPanResponderTerminationRequest`, `onPanResponderTerminate`를 모두 적용하고, 월간 뷰 달력(`Calendar`)에도 `monthlyPanResponder` 및 `key={currentYearMonth}` 동기화를 추가하여 좌우 월 이동 스와이프를 완벽 지원.
 - **백업 파일 복구 시 앱 푸시 로그 영구보관(`is_bookmarked`) 체크 상태 복원 보완**:
   - `backupService.ts`: `restoreFromBackupJson`에서 `app_notifications_raw` 테이블 인서트 시 누락되어 있던 `is_bookmarked` 컬럼 값을 함께 저장하고, 이미 DB에 동일 알림이 존재하던 경우에도 `isBookmarked === true`인 항목은 `UPDATE ... SET is_bookmarked = 1`로 갱신하여 영구보관 체크 상태가 해제되지 않고 그대로 복원되도록 수정.
+
+#### 5. 전체 기능 점검 및 안정성/정합성 일괄 개선 (2026-11 반영 완료)
+- **TypeScript 빌드 오류 및 백업/복구 안정성 개선**:
+  - `backupService.ts`: 미선언 `db.execute` 참조로 발생하던 TypeScript 컴파일 오류 및 복원 시 런타임 크래시를 `safeDbExecute`로 수정하고, 원격 DB 통신에 10초 타임아웃(`fetchWithTimeout`) 적용, Android Download 폴더 파일 저장 실패 시 `success: false` 반환, 백업 JSON 복구 시 camelCase/snake_case 필드 폴백 지원.
+  - `SettingsScreen.tsx`: 백업 파일 저장 결과(`result.success`) 검증 알림 분기 및 사용자 정의 공휴일 입력 시 달력 실존 날짜 검증 강화.
+- **SQLite 연결/DAO 정합성 및 공휴일 처리 보완**:
+  - `db.ts`: `getDb()` 호출 시 `SELECT 1;` 헬스체크로 익일/백그라운드 복귀 후 끊긴 C++ SQLite 핸들 자동 재연결.
+  - `parseExceptionDao.ts`: 짧은 시간 내 다중 INSERT 시 `Date.now()` ID 충돌로 기존 예외 단어가 덮어써지던 버그를 고유 ID 생성 및 `ON CONFLICT(keyword) DO UPDATE`로 수정.
+  - `recurringDao.ts`, `holidayDao.ts`: `insertRecurringRule`을 `INSERT OR REPLACE`로 멱등화하고, `upsertHoliday`가 공공 API/폴백 시드로 사용자 지정 공휴일(`is_custom = 1`)을 덮어쓰지 않도록 조건부 `ON CONFLICT` 적용.
+  - `appNotificationDao.ts`: 네이티브 파일 버퍼 → SQLite DB 적재 시 동일 내용 및 비결제 알림 동일 앱·동일 날짜·동일 제목 중복 적재 방지.
+  - `fallbackHolidays.ts`, `holidayService.ts`, `App.tsx`: 2026년 외 연도 법정 공휴일 폴백 생성 지원, 공공데이터포털 API 단건 객체(`items.item`) 응답 처리, 앱 시작 시 `initDatabase()` 및 `ensureHolidaysInitialized()` 보장.
+- **정기 결제·주간뷰·할부·통계·거래 입력 정합성 개선**:
+  - `recurringUtils.ts`, `MainCalendarScreen.tsx`, `DailyDetailScreen.tsx`, `StatisticsScreen.tsx`: 공휴일/주말 이관으로 전월 말(최대 14일)에서 당월로 넘어오는 `EXPENSE` 정기결제를 공통 유틸(`getRecurringOccurrencesForMonth`)로 통합 반영하고, 주간뷰 타 월 이동 시 모든 주간 대상 월 데이터 로드 및 선택 주 월 기준 일/주간 예산 계산 적용.
+  - `StatisticsScreen.tsx`: `useMemo` 적용, `lineChartData`가 전월/전년도 시작 장기 할부 잔여 회차(`getAllInstallmentTransactions`)까지 포함해 계산하도록 수정, 막대/선 차트에 가로 `ScrollView` 적용.
+  - `TransactionModal.tsx`: 취소/차감(`amount < 0`) 거래 수정 시 부호가 양수로 유실되던 문제를 `정상 결제 (+)` / `취소·차감 (-)` 토글 상태로 보존·편집 가능하도록 개선.
+  - `AppNotificationsScreen.tsx`, `SmsSyncHistoryModal.tsx`: 삭제/필터링 후 페이지 범위 초과 방지(`safePage`), deprecated `Clipboard` 대신 `copyLogToClipboard` 사용.
+- **Android 네이티브 SMS/푸시 수신·동기화·파싱 보완**:
+  - `nativeParserBridge.ts`: `syncMissedBackgroundEvents()`에서 `syncNativeBufferToDb()`로 앱 종료 중 수신·제거된 푸시 버퍼를 먼저 DB에 동기화한 뒤 SMS/푸시 이력 파싱을 수행하도록 개선.
+  - `AppNotificationListener.kt`, `SmsHistoryParserModule.kt`: `bufferLock`으로 버퍼 읽기/쓰기/삭제 동기화 및 중복 누적 방지, `syncPushHistoryForDate` 날짜 필터를 해당 월 1일 이후(`monthStartTime`) 기준으로 SMS/RCS와 일관화, MMS/SMS/Conversations `"ALL"` 필터 지원 및 `getInboxMessagesForInspection`의 `0L` 타임스탬프 폴백 보완.
+  - `FinancialTextParser.kt`, `SmsReceiver.kt`, `PushTestReceiver.kt`: 월/일/시/분 범위 검증 및 수신 시각 기반 연도(12월→1월 경계 포함) 추론, 백그라운드 리시버/리스너 실행 시 `loadExceptionsFromDb(context)` 사전 호출.

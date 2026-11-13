@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
-  Clipboard,
   Modal,
   ScrollView,
   Platform,
@@ -17,6 +16,7 @@ import {
 } from 'react-native';
 import dayjs from 'dayjs';
 import { appNotificationDao, AppNotificationRaw } from '../database/appNotificationDao';
+import { copyLogToClipboard } from '../services/smsHistoryService';
 
 interface AppNotificationsScreenProps {
   onBack?: () => void;
@@ -65,12 +65,14 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
     setDetailModalVisible(true);
   };
 
-  const handleCopySingleRaw = () => {
+  const handleCopySingleRaw = async () => {
     if (!selectedNotification) return;
-    try {
-      Clipboard.setString(selectedNotification.rawContent);
+    const copied = await copyLogToClipboard(selectedNotification.rawContent);
+    if (copied) {
       Alert.alert('복사 완료 📋', '앱 푸시 원문 내용이 클립보드에 복사되었습니다.');
-    } catch (e) {}
+    } else {
+      Alert.alert('알림', '클립보드 복사에 실패했습니다.');
+    }
   };
 
   const handleToggleBookmark = (id: string, isBookmarked: boolean) => {
@@ -116,9 +118,10 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
   });
 
   const totalPages = Math.ceil(filteredNotifications.length / pageSize) || 1;
+  const safePage = Math.min(currentPage, totalPages);
   const paginatedNotifications = filteredNotifications.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
+    (safePage - 1) * pageSize,
+    safePage * pageSize
   );
 
   const renderHeader = () => (
@@ -274,25 +277,25 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
         {/* 한 화면 50건 페이징 컨트롤러 */}
         <View style={styles.paginationRow}>
           <TouchableOpacity
-            style={[styles.pageBtn, currentPage <= 1 && styles.disabledPageBtn]}
-            disabled={currentPage <= 1}
-            onPress={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            style={[styles.pageBtn, safePage <= 1 && styles.disabledPageBtn]}
+            disabled={safePage <= 1}
+            onPress={() => setCurrentPage(Math.max(1, safePage - 1))}
           >
-            <Text style={[styles.pageBtnText, currentPage <= 1 && styles.disabledPageBtnText]}>
+            <Text style={[styles.pageBtnText, safePage <= 1 && styles.disabledPageBtnText]}>
               ◀ 이전 50건
             </Text>
           </TouchableOpacity>
 
           <Text style={styles.pageInfoText}>
-            {currentPage} / {totalPages} 페이지 (총 {filteredNotifications.length}건)
+            {safePage} / {totalPages} 페이지 (총 {filteredNotifications.length}건)
           </Text>
 
           <TouchableOpacity
-            style={[styles.pageBtn, currentPage >= totalPages && styles.disabledPageBtn]}
-            disabled={currentPage >= totalPages}
-            onPress={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            style={[styles.pageBtn, safePage >= totalPages && styles.disabledPageBtn]}
+            disabled={safePage >= totalPages}
+            onPress={() => setCurrentPage(Math.min(totalPages, safePage + 1))}
           >
-            <Text style={[styles.pageBtnText, currentPage >= totalPages && styles.disabledPageBtnText]}>
+            <Text style={[styles.pageBtnText, safePage >= totalPages && styles.disabledPageBtnText]}>
               다음 50건 ▶
             </Text>
           </TouchableOpacity>

@@ -251,20 +251,32 @@ object FinancialTextParser {
         }
 
         // 4. 날짜 및 시간 파싱 (예: 10/13 11:55 또는 10/12접수 또는 10/12)
-        val currentYear = Calendar.getInstance().get(Calendar.YEAR)
-        var dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(fallbackTimeMillis))
-        var createdAtStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(fallbackTimeMillis))
+        val safeFallbackTime = if (fallbackTimeMillis > 0) fallbackTimeMillis else System.currentTimeMillis()
+        val fallbackCal = Calendar.getInstance().apply { timeInMillis = safeFallbackTime }
+        val fallbackYear = fallbackCal.get(Calendar.YEAR)
+        val fallbackMonth = fallbackCal.get(Calendar.MONTH) + 1
+
+        var dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(safeFallbackTime))
+        var createdAtStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(safeFallbackTime))
 
         val dateTimePattern = Pattern.compile("([0-9]{1,2})\\/([0-9]{1,2})(?:\\s+([0-9]{1,2}):([0-9]{2}))?")
         val dtMatcher = dateTimePattern.matcher(bodyToParse)
         if (dtMatcher.find()) {
-            val month = dtMatcher.group(1)?.toIntOrNull() ?: 1
-            val day = dtMatcher.group(2)?.toIntOrNull() ?: 1
+            val month = dtMatcher.group(1)?.toIntOrNull() ?: 0
+            val day = dtMatcher.group(2)?.toIntOrNull() ?: 0
             val hour = dtMatcher.group(3)?.toIntOrNull() ?: 0
             val minute = dtMatcher.group(4)?.toIntOrNull() ?: 0
 
-            dateStr = String.format(Locale.getDefault(), "%04d-%02d-%02d", currentYear, month, day)
-            createdAtStr = String.format(Locale.getDefault(), "%04d-%02d-%02d %02d:%02d:00", currentYear, month, day, hour, minute)
+            if (month in 1..12 && day in 1..31 && hour in 0..23 && minute in 0..59) {
+                var parsedYear = fallbackYear
+                if (month == 12 && fallbackMonth == 1) {
+                    parsedYear = fallbackYear - 1
+                } else if (month == 1 && fallbackMonth == 12) {
+                    parsedYear = fallbackYear + 1
+                }
+                dateStr = String.format(Locale.getDefault(), "%04d-%02d-%02d", parsedYear, month, day)
+                createdAtStr = String.format(Locale.getDefault(), "%04d-%02d-%02d %02d:%02d:00", parsedYear, month, day, hour, minute)
+            }
         }
 
         // 5. 사용처(가맹점) 추출

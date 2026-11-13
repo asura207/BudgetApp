@@ -81,9 +81,10 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
   };
 
   const totalPages = Math.ceil(messages.length / pageSize) || 1;
+  const safePage = Math.min(currentPage, totalPages);
   const paginatedMessages = messages.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
+    (safePage - 1) * pageSize,
+    safePage * pageSize
   );
 
   const renderHeader = () => (
@@ -160,25 +161,25 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
               {/* 한 화면 50건 페이징 컨트롤러 */}
               <View style={styles.paginationRow}>
                 <TouchableOpacity
-                  style={[styles.pageBtn, currentPage <= 1 && styles.disabledPageBtn]}
-                  disabled={currentPage <= 1}
-                  onPress={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  style={[styles.pageBtn, safePage <= 1 && styles.disabledPageBtn]}
+                  disabled={safePage <= 1}
+                  onPress={() => setCurrentPage(Math.max(1, safePage - 1))}
                 >
-                  <Text style={[styles.pageBtnText, currentPage <= 1 && styles.disabledPageBtnText]}>
+                  <Text style={[styles.pageBtnText, safePage <= 1 && styles.disabledPageBtnText]}>
                     ◀ 이전 50건
                   </Text>
                 </TouchableOpacity>
 
                 <Text style={styles.pageInfoText}>
-                  {currentPage} / {totalPages} 페이지 (총 {messages.length}건)
+                  {safePage} / {totalPages} 페이지 (총 {messages.length}건)
                 </Text>
 
                 <TouchableOpacity
-                  style={[styles.pageBtn, currentPage >= totalPages && styles.disabledPageBtn]}
-                  disabled={currentPage >= totalPages}
-                  onPress={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  style={[styles.pageBtn, safePage >= totalPages && styles.disabledPageBtn]}
+                  disabled={safePage >= totalPages}
+                  onPress={() => setCurrentPage(Math.min(totalPages, safePage + 1))}
                 >
-                  <Text style={[styles.pageBtnText, currentPage >= totalPages && styles.disabledPageBtnText]}>
+                  <Text style={[styles.pageBtnText, safePage >= totalPages && styles.disabledPageBtnText]}>
                     다음 50건 ▶
                   </Text>
                 </TouchableOpacity>

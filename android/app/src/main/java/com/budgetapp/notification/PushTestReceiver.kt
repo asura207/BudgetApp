@@ -14,7 +14,8 @@ class PushTestReceiver : BroadcastReceiver() {
             val text = rawText.replace("'", "").replace("\"", "").trim()
 
             if (text.isNotBlank()) {
-                val result = FinancialTextParser.parse(text)
+                FinancialTextParser.loadExceptionsFromDb(context)
+                val result = FinancialTextParser.parse(text, System.currentTimeMillis(), "PUSH")
                 if (result.isPayment) {
                     FinancialParserModule.emitPaymentEvent(
                         dateStr = result.dateStr,

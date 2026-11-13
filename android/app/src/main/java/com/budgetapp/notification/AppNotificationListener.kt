@@ -87,6 +87,7 @@ class AppNotificationListener : NotificationListenerService() {
         if (isExcludedAppNotification(packageName, title, fullContent)) return
 
         // 3. 모든 카드사/금융 푸시 알림 실시간 결제 파싱 (PUSH 영역)
+        FinancialTextParser.loadExceptionsFromDb(this)
         val result = FinancialTextParser.parse(fullContent, sbnObj.postTime, "PUSH", packageName)
         if (result.isPayment) {
             FinancialParserModule.emitPaymentEvent(
@@ -117,40 +118,60 @@ class AppNotificationListener : NotificationListenerService() {
         if (isExcludedAppNotification(packageName, title, fullContent)) return
 
         val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-        val postTimeStr = sdf.format(Date(if (postTimeMs > 0) postTimeMs else System.currentTimeMillis()))
-        val id = "${postTimeMs}_${(1000..9999).random()}"
+        val safePostTime = if (postTimeMs > 0) postTimeMs else System.currentTimeMillis()
+        val postTimeStr = sdf.format(Date(safePostTime))
+        val postDateStr = postTimeStr.substring(0, 10)
+        val id = "${safePostTime}_${(1000..9999).random()}"
 
-        // 1. JSON 파일 버퍼에 100% 보장 저장
-        try {
-            val bufferFile = File(filesDir, "app_notifications_buffer.json")
-            val jsonArray = if (bufferFile.exists()) {
-                try { JSONArray(bufferFile.readText()) } catch (e: Exception) { JSONArray() }
-            } else {
-                JSONArray()
-            }
+        // 1. JSON 파일 버퍼에 100% 보장 저장 (동기화 및 중복 누적 방지)
+        synchronized(bufferLock) {
+            try {
+                val bufferFile = File(filesDir, "app_notifications_buffer.json")
+                val jsonArray = if (bufferFile.exists()) {
+                    try { JSONArray(bufferFile.readText()) } catch (e: Exception) { JSONArray() }
+                } else {
+                    JSONArray()
+                }
 
-            val item = JSONObject().apply {
-                put("id", id)
-                put("package_name", packageName)
-                put("title", title)
-                put("text", text)
-                put("big_text", bigText)
-                put("raw_content", fullContent)
-                put("post_time", postTimeStr)
-                put("is_bookmarked", isPayment)
-            }
+                for (i in 0 until jsonArray.length()) {
+                    val existing = jsonArray.optJSONObject(i) ?: continue
+                    val exPkg = existing.optString("package_name", "")
+                    val exPostTime = existing.optString("post_time", "")
+                    val exRaw = existing.optString("raw_content", "")
+                    val exTitle = existing.optString("title", "")
 
-            jsonArray.put(item)
-            while (jsonArray.length() > 2000) {
-                jsonArray.remove(0)
+                    if (exPkg == packageName && exPostTime == postTimeStr && exRaw == fullContent) {
+                        return
+                    }
+                    if (!isPayment && title.isNotBlank() && exPkg == packageName && exPostTime.startsWith(postDateStr) && exTitle == title) {
+                        return
+                    }
+                }
+
+                val item = JSONObject().apply {
+                    put("id", id)
+                    put("package_name", packageName)
+                    put("title", title)
+                    put("text", text)
+                    put("big_text", bigText)
+                    put("raw_content", fullContent)
+                    put("post_time", postTimeStr)
+                    put("is_bookmarked", isPayment)
+                }
+
+                jsonArray.put(item)
+                while (jsonArray.length() > 2000) {
+                    jsonArray.remove(0)
+                }
+                bufferFile.writeText(jsonArray.toString())
+            } catch (e: Exception) {
+                android.util.Log.e("AppNotificationListener", "Buffer write error: ${e.message}")
             }
-            bufferFile.writeText(jsonArray.toString())
-        } catch (e: Exception) {
-            android.util.Log.e("AppNotificationListener", "Buffer write error: ${e.message}")
         }
     }
 
     companion object {
+        val bufferLock = Any()
         private var instance: AppNotificationListener? = null
 
         fun isServiceConnected(): Boolean {
@@ -166,21 +187,20 @@ class AppNotificationListener : NotificationListenerService() {
                 val activeNotifs = listener.activeNotifications ?: return 0
 
                 val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                val targetDate = try { sdf.parse(targetDateStr) ?: Date() } catch (e: Exception) { Date() }
+                val targetDate = try {
+                    if (targetDateStr.isBlank() || targetDateStr == "ALL") Date() else (sdf.parse(targetDateStr) ?: Date())
+                } catch (e: Exception) {
+                    Date()
+                }
 
                 val cal = Calendar.getInstance()
                 cal.time = targetDate
+                cal.set(Calendar.DAY_OF_MONTH, 1)
                 cal.set(Calendar.HOUR_OF_DAY, 0)
                 cal.set(Calendar.MINUTE, 0)
                 cal.set(Calendar.SECOND, 0)
                 cal.set(Calendar.MILLISECOND, 0)
-                val startTime = cal.timeInMillis
-
-                cal.set(Calendar.HOUR_OF_DAY, 23)
-                cal.set(Calendar.MINUTE, 59)
-                cal.set(Calendar.SECOND, 59)
-                cal.set(Calendar.MILLISECOND, 999)
-                val endTime = cal.timeInMillis
+                val monthStartTime = cal.timeInMillis
 
                 for (sbn in activeNotifs) {
                     val packageName = sbn.packageName ?: ""
@@ -196,9 +216,9 @@ class AppNotificationListener : NotificationListenerService() {
                         // 제외 대상 앱 푸시 알림 스킵
                         if (listener.isExcludedAppNotification(packageName, title, fullContent)) continue
 
-                        // 파싱 및 결제 이벤트 등록
+                        // 파싱 및 결제 이벤트 등록 (해당 월 1일 이후 또는 전체 동기화 대상)
                         var isPayment = false
-                        if (targetDateStr == "ALL" || postTime in startTime..endTime) {
+                        if (targetDateStr.isBlank() || targetDateStr == "ALL" || postTime >= monthStartTime) {
                             val result = FinancialTextParser.parse(fullContent, postTime, "PUSH", packageName)
                             isPayment = result.isPayment
                             if (result.isPayment) {

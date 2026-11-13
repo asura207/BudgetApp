@@ -64,12 +64,14 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun getAppNotificationsBuffer(promise: Promise) {
         try {
-            val bufferFile = File(reactContext.filesDir, "app_notifications_buffer.json")
-            if (bufferFile.exists()) {
-                val jsonStr = bufferFile.readText(Charsets.UTF_8)
-                promise.resolve(jsonStr)
-            } else {
-                promise.resolve("[]")
+            synchronized(AppNotificationListener.bufferLock) {
+                val bufferFile = File(reactContext.filesDir, "app_notifications_buffer.json")
+                if (bufferFile.exists()) {
+                    val jsonStr = bufferFile.readText(Charsets.UTF_8)
+                    promise.resolve(jsonStr)
+                } else {
+                    promise.resolve("[]")
+                }
             }
         } catch (e: Exception) {
             promise.reject("BUFFER_READ_ERROR", e.message, e)
@@ -79,23 +81,25 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun clearAppNotificationsBuffer(targetId: String, promise: Promise) {
         try {
-            val bufferFile = File(reactContext.filesDir, "app_notifications_buffer.json")
-            if (bufferFile.exists()) {
-                if (targetId == "CLEAR_ALL") {
-                    bufferFile.writeText("[]")
-                } else {
-                    val rawJson = bufferFile.readText(Charsets.UTF_8)
-                    val jsonArray = org.json.JSONArray(rawJson)
-                    val newArray = org.json.JSONArray()
+            synchronized(AppNotificationListener.bufferLock) {
+                val bufferFile = File(reactContext.filesDir, "app_notifications_buffer.json")
+                if (bufferFile.exists()) {
+                    if (targetId == "CLEAR_ALL") {
+                        bufferFile.writeText("[]")
+                    } else {
+                        val rawJson = bufferFile.readText(Charsets.UTF_8)
+                        val jsonArray = org.json.JSONArray(rawJson)
+                        val newArray = org.json.JSONArray()
 
-                    for (i in 0 until jsonArray.length()) {
-                        val obj = jsonArray.optJSONObject(i) ?: continue
-                        val id = obj.optString("id", "")
-                        if (id != targetId) {
-                            newArray.put(obj)
+                        for (i in 0 until jsonArray.length()) {
+                            val obj = jsonArray.optJSONObject(i) ?: continue
+                            val id = obj.optString("id", "")
+                            if (id != targetId) {
+                                newArray.put(obj)
+                            }
                         }
+                        bufferFile.writeText(newArray.toString())
                     }
-                    bufferFile.writeText(newArray.toString())
                 }
             }
             promise.resolve(true)
@@ -269,8 +273,9 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                     processedBodies.add(rawBody)
 
                     if (msgTime in 1..9999999999L) msgTime *= 1000L
-                    val timeStr = sdf.format(Date(if (msgTime > 0) msgTime else System.currentTimeMillis()))
-                    val res = FinancialTextParser.parse(rawBody, msgTime, "SMS")
+                    val fallbackTime = if (msgTime > 0) msgTime else System.currentTimeMillis()
+                    val timeStr = sdf.format(Date(fallbackTime))
+                    val res = FinancialTextParser.parse(rawBody, fallbackTime, "SMS")
 
                     val map: WritableMap = Arguments.createMap()
                     map.putString("id", "rcs_${msgTime}_${processedBodies.size}")
@@ -302,8 +307,9 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                     processedBodies.add(body)
 
                     if (smsTime in 1..9999999999L) smsTime *= 1000L
-                    val timeStr = sdf.format(Date(if (smsTime > 0) smsTime else System.currentTimeMillis()))
-                    val res = FinancialTextParser.parse(body, smsTime, "SMS")
+                    val fallbackTime = if (smsTime > 0) smsTime else System.currentTimeMillis()
+                    val timeStr = sdf.format(Date(fallbackTime))
+                    val res = FinancialTextParser.parse(body, fallbackTime, "SMS")
 
                     val map: WritableMap = Arguments.createMap()
                     map.putString("id", "sms_${smsTime}_${processedBodies.size}")
@@ -505,7 +511,9 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                                 val fallbackTime = if (mmsTime > 0) mmsTime else System.currentTimeMillis()
                                 val result = FinancialTextParser.parse(body, fallbackTime, "SMS")
                                 if (result.isPayment) {
-                                    val matchDate = result.dateStr >= monthStartDateStr
+                                    val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" ||
+                                            (monthStartDateStr.isNotBlank() && result.dateStr >= monthStartDateStr) ||
+                                            result.dateStr == targetDateStr
 
                                     logBuilder.append("[MMS Match Found] Date: ").append(result.dateStr)
                                         .append(" | Card: ").append(result.cardCompany)
@@ -570,7 +578,9 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                             val result = FinancialTextParser.parse(body, fallbackTime, "SMS")
 
                             if (result.isPayment) {
-                                val matchDate = result.dateStr >= monthStartDateStr
+                                val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" ||
+                                        (monthStartDateStr.isNotBlank() && result.dateStr >= monthStartDateStr) ||
+                                        result.dateStr == targetDateStr
 
                                 logBuilder.append("[SMS Match Found] Date: ").append(result.dateStr)
                                     .append(" | Card: ").append(result.cardCompany)
@@ -646,7 +656,9 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                             val result = FinancialTextParser.parse(body, fallbackTime, "SMS")
 
                             if (result.isPayment) {
-                                val matchDate = result.dateStr >= monthStartDateStr
+                                val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" ||
+                                        (monthStartDateStr.isNotBlank() && result.dateStr >= monthStartDateStr) ||
+                                        result.dateStr == targetDateStr
 
                                 logBuilder.append("[Conv Match Found] Date: ").append(result.dateStr)
                                     .append(" | Card: ").append(result.cardCompany)

@@ -25,9 +25,14 @@ export const parseExceptionDao = {
     const trimmed = keyword.trim();
     if (!trimmed) return false;
     try {
+      const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       safeDbExecute(
-        'INSERT OR REPLACE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES (?, ?, ?, ?);',
-        [String(Date.now()), trimmed, applyPush ? 1 : 0, applySms ? 1 : 0]
+        `INSERT INTO parse_exceptions (id, keyword, apply_push, apply_sms)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(keyword) DO UPDATE SET
+           apply_push = excluded.apply_push,
+           apply_sms = excluded.apply_sms;`,
+        [uniqueId, trimmed, applyPush ? 1 : 0, applySms ? 1 : 0]
       );
       return true;
     } catch (e) {

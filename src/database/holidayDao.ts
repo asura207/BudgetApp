@@ -10,7 +10,8 @@ export const holidayDao = {
          date_name = excluded.date_name,
          is_holiday = excluded.is_holiday,
          is_custom = excluded.is_custom,
-         updated_at = CURRENT_TIMESTAMP;`,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE holidays.is_custom = 0 OR excluded.is_custom = 1;`,
       [h.locdate, h.dateName, h.isHoliday ? 1 : 0, h.isCustom ? 1 : 0]
     );
   },

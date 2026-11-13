@@ -12,14 +12,11 @@ import {
   PanResponder,
 } from 'react-native';
 import dayjs from 'dayjs';
-import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import { Transaction } from '../types/budget';
 import { transactionDao } from '../database/transactionDao';
 import { recurringDao } from '../database/recurringDao';
-import { getNextBusinessDay } from '../utils/dateUtils';
+import { getRecurringOccurrencesForMonth } from '../utils/recurringUtils';
 import { TransactionModal } from '../components/transaction/TransactionModal';
-
-dayjs.extend(isSameOrAfter);
 
 export const DailyDetailScreen = ({ route, navigation }: any) => {
   const initialDateStr: string = route?.params?.dateStr || dayjs().format('YYYY-MM-DD');
@@ -109,89 +106,29 @@ export const DailyDetailScreen = ({ route, navigation }: any) => {
     const currentMoment = dayjs(currentDateStr);
     const yearMonthStr = currentMoment.format('YYYY-MM');
 
-    // 정기 결제/적금 항목 중 해당 날짜에 해당되는 항목 추출 (시작일 & 다중 요일 반영)
+    // 정기 결제/적금 항목 중 해당 날짜에 도래하는 항목 추출 (전월 말 공휴일/주말 이관분 포함)
     const activeRecurringItems: Transaction[] = [];
+    const monthOccurrences = getRecurringOccurrencesForMonth(recurringRules, yearMonthStr);
 
-    recurringRules.forEach((rule) => {
-      const ruleStartStr = rule.startDate || '2026-01-01';
-      const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
-      let appliesToThisDate = false;
+    monthOccurrences.forEach(({ rule, effectiveDate }) => {
+      if (effectiveDate !== currentDateStr) return;
 
-      if (dayjs(currentDateStr).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
-        if (repeatType === 'DAILY') {
-          if (rule.categoryType === 'EXPENSE') {
-            const daysInMonth = currentMoment.daysInMonth();
-            for (let d = 1; d <= daysInMonth; d++) {
-              const rawDate = `${yearMonthStr}-${String(d).padStart(2, '0')}`;
-              if (
-                dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
-                getNextBusinessDay(rawDate, 'EXPENSE') === currentDateStr
-              ) {
-                appliesToThisDate = true;
-                break;
-              }
-            }
-          } else {
-            appliesToThisDate = true; // 적금은 시작일 이후 매일 당일 적용
-          }
-        } else if (repeatType === 'MONTHLY_DAY') {
-          if (rule.dayOfMonth <= currentMoment.daysInMonth()) {
-            const rawDate = `${yearMonthStr}-${String(rule.dayOfMonth).padStart(2, '0')}`;
-            if (dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
-              if (rule.categoryType === 'EXPENSE') {
-                if (getNextBusinessDay(rawDate, 'EXPENSE') === currentDateStr) {
-                  appliesToThisDate = true;
-                }
-              } else {
-                if (rawDate === currentDateStr) {
-                  appliesToThisDate = true;
-                }
-              }
-            }
-          }
-        } else if (repeatType === 'WEEKLY_DAYS') {
-          const daysInMonth = currentMoment.daysInMonth();
-          for (let d = 1; d <= daysInMonth; d++) {
-            const rawDate = `${yearMonthStr}-${String(d).padStart(2, '0')}`;
-            const dayOfWeek = dayjs(rawDate).day();
-            if (
-              dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
-              (rule.daysOfWeek || []).includes(dayOfWeek)
-            ) {
-              if (rule.categoryType === 'EXPENSE') {
-                if (getNextBusinessDay(rawDate, 'EXPENSE') === currentDateStr) {
-                  appliesToThisDate = true;
-                  break;
-                }
-              } else {
-                if (rawDate === currentDateStr) {
-                  appliesToThisDate = true;
-                  break;
-                }
-              }
-            }
-          }
-        }
-      }
-
-      if (appliesToThisDate) {
-        const alreadyInDb = dbList.some(
-          (tx) => tx.merchant === rule.merchant && tx.amount === rule.amount
-        );
-        if (!alreadyInDb) {
-          activeRecurringItems.push({
-            id: `recurring_${rule.id}_${currentDateStr}`,
-            date: currentDateStr,
-            categoryType: rule.categoryType,
-            amount: rule.amount,
-            merchant: rule.merchant,
-            paymentType: rule.paymentType,
-            cardCompany: rule.cardCompany,
-            installmentType: rule.installmentType,
-            installmentMonths: 1,
-            isRecurring: true,
-          });
-        }
+      const alreadyInDb = dbList.some(
+        (tx) => tx.isRecurring && tx.merchant === rule.merchant && tx.amount === rule.amount
+      );
+      if (!alreadyInDb) {
+        activeRecurringItems.push({
+          id: `recurring_${rule.id}_${currentDateStr}`,
+          date: currentDateStr,
+          categoryType: rule.categoryType,
+          amount: rule.amount,
+          merchant: rule.merchant,
+          paymentType: rule.paymentType,
+          cardCompany: rule.cardCompany,
+          installmentType: rule.installmentType,
+          installmentMonths: 1,
+          isRecurring: true,
+        });
       }
     });
 

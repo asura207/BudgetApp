@@ -1,6 +1,7 @@
+import dayjs from 'dayjs';
 import { holidayDao } from '../database/holidayDao';
-import { fallbackHolidays } from '../utils/fallbackHolidays';
-import { setLastHolidaySync } from '../storage/mmkv';
+import { getFallbackHolidaysForYear } from '../utils/fallbackHolidays';
+import { getLastHolidaySync, setLastHolidaySync } from '../storage/mmkv';
 import { Holiday } from '../types/budget';
 
 const PUBLIC_HOLIDAY_API = 'https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo';
@@ -8,8 +9,8 @@ const PUBLIC_HOLIDAY_API = 'https://apis.data.go.kr/B090041/openapi/service/Spcd
 const API_KEY = 'bf09ccab001ebac6d639311400710826a9c70ba4f7deff2a5f671a99dfce9335';
 
 export const holidayService = {
-  seedFallbackHolidays(): void {
-    fallbackHolidays.forEach((h) => {
+  seedFallbackHolidays(year: number = dayjs().year()): void {
+    getFallbackHolidaysForYear(year).forEach((h) => {
       holidayDao.upsertHoliday(h);
     });
   },
@@ -24,10 +25,12 @@ export const holidayService = {
       }
 
       const json = await response.json();
-      const items = json?.response?.body?.items?.item;
+      const rawItems = json?.response?.body?.items?.item;
+      const items = Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
 
-      if (items && Array.isArray(items)) {
+      if (items.length > 0) {
         items.forEach((item: any) => {
+          if (!item?.locdate) return;
           const rawDate = String(item.locdate);
           const formattedDate = `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`;
           const holiday: Holiday = {
@@ -38,14 +41,30 @@ export const holidayService = {
           };
           holidayDao.upsertHoliday(holiday);
         });
+      } else {
+        this.seedFallbackHolidays(year);
       }
 
       setLastHolidaySync(new Date().toISOString());
       return true;
     } catch (error) {
       console.warn('Holiday API fetch failed, seeding fallback holidays:', error);
-      this.seedFallbackHolidays();
+      this.seedFallbackHolidays(year);
       return false;
+    }
+  },
+
+  async ensureHolidaysInitialized(): Promise<void> {
+    const currentYear = dayjs().year();
+    const existing = holidayDao.getHolidaysByYear(String(currentYear));
+    if (existing.length === 0) {
+      this.seedFallbackHolidays(currentYear);
+    }
+
+    const lastSync = getLastHolidaySync();
+    const syncedToday = lastSync && dayjs(lastSync).format('YYYY-MM-DD') === dayjs().format('YYYY-MM-DD');
+    if (!syncedToday) {
+      await this.syncHolidays(currentYear);
     }
   },
 };

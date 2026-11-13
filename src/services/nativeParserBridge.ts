@@ -63,6 +63,10 @@ export const syncMissedBackgroundEvents = async () => {
   try {
     const { NativeModules } = require('react-native');
     const { getNicknameCreatedAt } = require('../storage/mmkv');
+    const { appNotificationDao } = require('../database/appNotificationDao');
+
+    // 백그라운드 파일 버퍼(app_notifications_buffer.json)에 쌓인 푸시 로그를 먼저 DB로 수록 동기화
+    await appNotificationDao.syncNativeBufferToDb();
 
     if (NativeModules.SmsHistoryParserModule && typeof NativeModules.SmsHistoryParserModule.syncSmsHistoryForDate === 'function') {
       const nicknameDate = getNicknameCreatedAt() || 'ALL';

@@ -101,8 +101,26 @@ export const appNotificationDao = {
               if (pkg.includes('toss') && (title.includes('악성') || content.includes('악성'))) return;
 
               const isBookmarked = item.is_bookmarked || item.isBookmarked ? 1 : 0;
+              const postTime = item.post_time || item.postTime || '';
+              const postDate = postTime.length >= 10 ? postTime.substring(0, 10) : '';
 
               try {
+                // 동일 발신 앱, 동일 일자, 동일 제목/원문 중복 수집 차단
+                if (postDate) {
+                  const dupRes = safeDbExecute(
+                    `SELECT id, raw_content FROM app_notifications_raw
+                     WHERE LOWER(package_name) = ? AND substr(post_time, 1, 10) = ? AND COALESCE(title, '') = ?;`,
+                    [pkg, postDate, title]
+                  );
+                  const existingRows = dupRes?.rows?._array || [];
+                  const hasExactContentDup = existingRows.some(
+                    (row: any) => (row.raw_content || '') === content
+                  );
+                  if (hasExactContentDup) return;
+                  // 비결제 일반 알림은 동일 앱/당일/동일 제목 중복 스킵
+                  if (isBookmarked === 0 && existingRows.length > 0) return;
+                }
+
                 safeDbExecute(
                   'INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, ?);',
                   [
@@ -110,9 +128,9 @@ export const appNotificationDao = {
                     pkg,
                     title,
                     item.text || '',
-                    item.big_text || '',
+                    item.big_text || item.bigText || '',
                     content,
-                    item.post_time || '',
+                    postTime,
                     isBookmarked,
                   ]
                 );

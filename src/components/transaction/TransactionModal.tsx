@@ -47,6 +47,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 }) => {
   const [categoryType, setCategoryType] = useState<CategoryType>('EXPENSE');
   const [amountStr, setAmountStr] = useState('');
+  const [isCancellation, setIsCancellation] = useState(false);
   const [merchant, setMerchant] = useState('');
   const [paymentType, setPaymentType] = useState<PaymentType>('CARD');
   const [cardCompany, setCardCompany] = useState('신한카드');
@@ -59,7 +60,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   useEffect(() => {
     if (initialData) {
       setCategoryType(initialData.categoryType);
-      setAmountStr(formatNumberWithComma(initialData.amount));
+      setIsCancellation(initialData.amount < 0);
+      setAmountStr(formatNumberWithComma(Math.abs(initialData.amount)));
       setMerchant(initialData.merchant);
       setPaymentType(initialData.paymentType);
 
@@ -80,6 +82,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setInstallmentMonths(String(initialData.installmentMonths || 1));
     } else {
       setCategoryType('EXPENSE');
+      setIsCancellation(false);
       setAmountStr('');
       setMerchant('');
       setPaymentType('CARD');
@@ -122,7 +125,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       id: initialData ? initialData.id : String(Date.now()),
       date: dateStr,
       categoryType,
-      amount,
+      amount: isCancellation ? -Math.abs(amount) : amount,
       merchant: merchant.trim(),
       paymentType,
       cardCompany: finalCardCompany,
@@ -203,6 +206,44 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
             {/* 금액 */}
             <Text style={styles.label}>금액 (원)</Text>
+            <View style={styles.row}>
+              <TouchableOpacity
+                style={[
+                  styles.optionBtn,
+                  !isCancellation && styles.selectedOptionBtn,
+                ]}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={() => setIsCancellation(false)}
+              >
+                <Text
+                  style={[
+                    styles.optionText,
+                    !isCancellation && styles.selectedOptionText,
+                  ]}
+                >
+                  정상 결제 (+)
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.optionBtn,
+                  isCancellation && styles.selectedOptionBtn,
+                ]}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={() => setIsCancellation(true)}
+              >
+                <Text
+                  style={[
+                    styles.optionText,
+                    isCancellation && styles.selectedOptionText,
+                  ]}
+                >
+                  취소 / 차감 (-)
+                </Text>
+              </TouchableOpacity>
+            </View>
             <TextInput
               style={styles.input}
               placeholder="0"
