@@ -88,6 +88,22 @@ function main() {
         }
       } else {
         console.log(`\n🎉 [${envKey.toUpperCase()}] 빌드 완료! (${taskName})`);
+        if (taskName === 'assembleRelease' || taskName === 'app:assembleRelease') {
+          console.log(`\n📦 빌드된 Release APK를 install 폴더로 복사합니다...`);
+          try {
+            const fs = require('fs');
+            const sourceApk = path.join(__dirname, '../android/app/build/outputs/apk/release/app-release.apk');
+            const installDir = path.join(__dirname, '../install');
+            if (!fs.existsSync(installDir)) {
+              fs.mkdirSync(installDir);
+            }
+            const destApk = path.join(installDir, 'app-release.apk');
+            fs.copyFileSync(sourceApk, destApk);
+            console.log(`✅ APK 복사 완료: install/app-release.apk`);
+          } catch(err) {
+            console.error(`❌ APK 복사 실패:`, err.message);
+          }
+        }
       }
     } else {
       console.error(`\n❌ 빌드 중 오류 발생 (종료 코드: ${code})`);

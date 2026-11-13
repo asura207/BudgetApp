@@ -213,3 +213,15 @@
   - `nativeParserBridge.ts`: `syncMissedBackgroundEvents()`에서 `syncNativeBufferToDb()`로 앱 종료 중 수신·제거된 푸시 버퍼를 먼저 DB에 동기화한 뒤 SMS/푸시 이력 파싱을 수행하도록 개선.
   - `AppNotificationListener.kt`, `SmsHistoryParserModule.kt`: `bufferLock`으로 버퍼 읽기/쓰기/삭제 동기화 및 중복 누적 방지, `syncPushHistoryForDate` 날짜 필터를 해당 월 1일 이후(`monthStartTime`) 기준으로 SMS/RCS와 일관화, MMS/SMS/Conversations `"ALL"` 필터 지원 및 `getInboxMessagesForInspection`의 `0L` 타임스탬프 폴백 보완.
   - `FinancialTextParser.kt`, `SmsReceiver.kt`, `PushTestReceiver.kt`: 월/일/시/분 범위 검증 및 수신 시각 기반 연도(12월→1월 경계 포함) 추론, 백그라운드 리시버/리스너 실행 시 `loadExceptionsFromDb(context)` 사전 호출.
+#### 6. 원격 DB 백업/복구 방식 및 데이터 로테이션 시스템 100% 개편 (2026-11 반영 완료)
+- **월별 독립 목표 예산(Budget) 분리 관리 시스템**:
+  - `mmkv.ts`: 1개로 고정되던 예산액을 월별 고유(예: `budget_2026-11`)로 분리 저장하여 과거 통계액이 변하지 않도록 개선.
+- **Python FastAPI (HTTP API) 백업/복구 통신 우회 (`backupService.ts`)**:
+  - `PostgresBackupWorker.kt` (네이티브 JDBC) 사용 시 발생하는 안드로이드 호환성 에러(`NoClassDefFoundError: ManagementFactory`) 및 SQLite WAL 동시성 락 현상을 영구 제거하기 위해 JDBC 모듈을 완전 삭제하고 HTTP Fetch 통신으로 변경.
+- **앱 푸시 기록 📌 보관(`is_bookmarked`) 데이터 선별 백업 및 유실 방지(Auto-Sync)**:
+  - 원격 DB 백업 시 일반 1회성 알림을 제외하고 `is_bookmarked=true`인 로그만 전송하며, 앱 화면이 켜질 때마다 백그라운드에서 못 받은 푸시/문자 결제건이 있는지 자동 스캔하여 달력에 삽입.
+- **매일 1회 원격 자동 백업 및 로컬 파일 교체(Rotation) 기능**:
+  - `isDailyAutoBackup=true` 호출 시 `Download` 폴더에 쌓인 과거 `backup_*.txt`를 자동 삭제 후 오늘의 파일 1개만 생성.
+  - 앱 설정에서 [원격 DB 자동 백업]이 켜져있을 경우 백그라운드에서 매일 최초 실행 1회 동작.
+- **원격 백업 고유 키(`userKey`) 입력 및 영구 유지**:
+  - 설치 후 최초 온보딩의 `원격 DB에서 복원` 화면에서 6자리 코드를 입력하여 복원하면, 랜덤 생성되었던 키를 버리고 해당 입력 키를 기기에 영구 유지(덮어쓰기)하도록 수정.
