@@ -228,4 +228,8 @@
 - **API 키 및 서버 설정 외부화 (`app.secrets.json`, Git 미포함 처리)**:
   - `app.secrets.json`(실제 키·서버 주소 저장, `.gitignore` 등록으로 커밋 제외) 및 `app.secrets.example.json`(플레이스홀더 템플릿)을 추가하고 `src/config/appSecrets.ts`로 로더 분리.
   - `backupService.ts`(`API_BASE_URL`, `BUGET_API_KEY`, `BUGET_HMAC_SECRET`) 및 `holidayService.ts`(`HOLIDAY_API_KEY`)에서 하드코딩된 키를 제거하고 `APP_SECRETS`를 참조하도록 변경.
-  - `scripts/setup-env.js`에 `ensureAppSecretsFile()`를 추가해 신규 환경 빌드 시 `app.secrets.json` 누락을 자동 보완.
+  - **`scripts/setup-env.js`에 `ensureAppSecretsFile()`를 추가해 신규 환경 빌드 시 `app.secrets.json` 누락을 자동 보완.**
+- **통계 화면 로딩 및 공휴일·정기결제 연산 성능 최적화**:
+  - `holidayDao.ts`: `isHoliday()` 조회를 매 호출 동기 SQL 쿼리에서 인메모리 `Set<string>` 캐시 기반 O(1) 조회로 개선하고 `upsertHoliday`/`deleteCustomHoliday`/`updateCustomHoliday` 시 캐시 자동 무효화.
+  - `dateUtils.ts`, `recurringUtils.ts`: 루프 내 다중 `dayjs()` 객체 할당/포맷을 `Date.UTC` 및 `YYYY-MM-DD` 문자열 연산으로 대체하고, 동일 날짜 영업일 이관 결과 캐싱 및 스캔 구간 날짜 메타 1회 생성 적용.
+  - `StatisticsScreen.tsx`: 당해 연도 1~12월 정기결제 도래 내역을 `selectedYearOccurrencesByMonth`로 1회 통합 계산하고 `monthCardStats`/`monthSavingsStats`에 `useMemo` 적용, `연도별 비교` 탭(`yearCardStats`, `yearSavingsStats`, `yearlyComparisonData`)은 해당 탭 활성화 시에만 지연 계산·메모이제이션.

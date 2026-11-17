@@ -1,17 +1,20 @@
-import dayjs from 'dayjs';
-import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
-import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import { RecurringRule } from '../types/budget';
 import { getNextBusinessDay } from './dateUtils';
-
-dayjs.extend(isSameOrAfter);
-dayjs.extend(isSameOrBefore);
 
 export interface RecurringOccurrence {
   rule: RecurringRule;
   rawDate: string;
   effectiveDate: string;
 }
+
+const DAY_MS = 86400000;
+
+const formatUtcYmd = (date: Date): string => {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
 
 /**
  * 지정한 월(YYYY-MM)에 실제로 도래하는 정기 결제/적금 내역을 산출합니다.
@@ -23,49 +26,70 @@ export const getRecurringOccurrencesForMonth = (
   yearMonth: string,
   maxEffectiveDate?: string
 ): RecurringOccurrence[] => {
-  const monthStart = dayjs(`${yearMonth}-01`, 'YYYY-MM-DD');
-  const monthEnd = monthStart.endOf('month');
-  const scanStart = monthStart.subtract(14, 'day');
-  const maxMoment = maxEffectiveDate ? dayjs(maxEffectiveDate, 'YYYY-MM-DD') : null;
+  if (rules.length === 0) return [];
 
+  const yearNum = Number(yearMonth.slice(0, 4));
+  const monthNum = Number(yearMonth.slice(5, 7));
+  if (isNaN(yearNum) || isNaN(monthNum)) return [];
+
+  const monthStartMs = Date.UTC(yearNum, monthNum - 1, 1);
+  const monthEndMs = Date.UTC(yearNum, monthNum, 0);
+  const scanStartMs = monthStartMs - 14 * DAY_MS;
+
+  // 스캔 구간의 날짜 메타(문자열/일/요일)를 1회만 생성해 모든 규칙이 공유
+  const calendarDays: { rawDate: string; dayOfMonth: number; dayOfWeek: number }[] = [];
+  for (let ms = scanStartMs; ms <= monthEndMs; ms += DAY_MS) {
+    const dt = new Date(ms);
+    calendarDays.push({
+      rawDate: formatUtcYmd(dt),
+      dayOfMonth: dt.getUTCDate(),
+      dayOfWeek: dt.getUTCDay(),
+    });
+  }
+
+  // 지출 영업일 이관 결과를 동일 날짜에 대해 재계산하지 않도록 캐싱
+  const expenseEffectiveCache: { [rawDate: string]: string } = {};
   const occurrences: RecurringOccurrence[] = [];
 
-  rules.forEach((rule) => {
+  for (let rIdx = 0; rIdx < rules.length; rIdx++) {
+    const rule = rules[rIdx];
     const ruleStartStr = rule.startDate || rule.createdAt?.slice(0, 10) || `${yearMonth}-01`;
-    const ruleStartMoment = dayjs(ruleStartStr, 'YYYY-MM-DD');
     const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
+    const isExpense = rule.categoryType === 'EXPENSE';
+    const daysOfWeekSet =
+      repeatType === 'WEEKLY_DAYS' ? new Set(rule.daysOfWeek || []) : null;
 
-    let cursor = scanStart;
-    while (cursor.isSameOrBefore(monthEnd, 'day')) {
-      const rawDate = cursor.format('YYYY-MM-DD');
+    for (let dIdx = 0; dIdx < calendarDays.length; dIdx++) {
+      const { rawDate, dayOfMonth, dayOfWeek } = calendarDays[dIdx];
+      if (rawDate < ruleStartStr) continue;
 
-      if (cursor.isSameOrAfter(ruleStartMoment, 'day')) {
-        let applies = false;
-        if (repeatType === 'DAILY') {
-          applies = true;
-        } else if (repeatType === 'MONTHLY_DAY') {
-          applies = cursor.date() === rule.dayOfMonth;
-        } else if (repeatType === 'WEEKLY_DAYS') {
-          applies = (rule.daysOfWeek || []).includes(cursor.day());
-        }
+      let applies = false;
+      if (repeatType === 'DAILY') {
+        applies = true;
+      } else if (repeatType === 'MONTHLY_DAY') {
+        applies = dayOfMonth === rule.dayOfMonth;
+      } else if (repeatType === 'WEEKLY_DAYS') {
+        applies = daysOfWeekSet !== null && daysOfWeekSet.has(dayOfWeek);
+      }
 
-        if (applies) {
-          const effectiveDate =
-            rule.categoryType === 'EXPENSE'
-              ? getNextBusinessDay(rawDate, 'EXPENSE')
-              : rawDate;
+      if (!applies) continue;
 
-          if (effectiveDate.startsWith(yearMonth)) {
-            if (!maxMoment || dayjs(effectiveDate, 'YYYY-MM-DD').isSameOrBefore(maxMoment, 'day')) {
-              occurrences.push({ rule, rawDate, effectiveDate });
-            }
-          }
+      let effectiveDate = rawDate;
+      if (isExpense) {
+        effectiveDate = expenseEffectiveCache[rawDate];
+        if (!effectiveDate) {
+          effectiveDate = getNextBusinessDay(rawDate, 'EXPENSE');
+          expenseEffectiveCache[rawDate] = effectiveDate;
         }
       }
 
-      cursor = cursor.add(1, 'day');
+      if (effectiveDate.startsWith(yearMonth)) {
+        if (!maxEffectiveDate || effectiveDate <= maxEffectiveDate) {
+          occurrences.push({ rule, rawDate, effectiveDate });
+        }
+      }
     }
-  });
+  }
 
   return occurrences;
 };

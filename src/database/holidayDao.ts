@@ -1,7 +1,14 @@
 import { safeDbExecute } from './db';
 import { Holiday } from '../types/budget';
 
+// 공휴일 여부 O(1) 조회를 위한 인메모리 캐시 (갱신/삭제 시 자동 무효화)
+let holidaySetCache: Set<string> | null = null;
+
 export const holidayDao = {
+  invalidateCache(): void {
+    holidaySetCache = null;
+  },
+
   upsertHoliday(h: Holiday): void {
     safeDbExecute(
       `INSERT INTO holidays (locdate, date_name, is_holiday, is_custom)
@@ -14,10 +21,12 @@ export const holidayDao = {
        WHERE holidays.is_custom = 0 OR excluded.is_custom = 1;`,
       [h.locdate, h.dateName, h.isHoliday ? 1 : 0, h.isCustom ? 1 : 0]
     );
+    holidaySetCache = null;
   },
 
   deleteCustomHoliday(locdate: string): void {
     safeDbExecute('DELETE FROM holidays WHERE locdate = ? AND is_custom = 1;', [locdate]);
+    holidaySetCache = null;
   },
 
   getAllCustomHolidays(): Holiday[] {
@@ -37,6 +46,7 @@ export const holidayDao = {
   updateCustomHoliday(oldLocdate: string, newHoliday: Holiday): void {
     if (oldLocdate !== newHoliday.locdate) {
       safeDbExecute('DELETE FROM holidays WHERE locdate = ? AND is_custom = 1;', [oldLocdate]);
+      holidaySetCache = null;
     }
     this.upsertHoliday(newHoliday);
   },
@@ -57,14 +67,13 @@ export const holidayDao = {
   },
 
   isHoliday(dateStr: string): boolean {
-    const result = safeDbExecute(
-      'SELECT is_holiday FROM holidays WHERE locdate = ? LIMIT 1;',
-      [dateStr]
-    );
-    const rows = result.rows?._array || [];
-    if (rows.length > 0) {
-      return Boolean(rows[0].is_holiday);
+    if (holidaySetCache === null) {
+      const result = safeDbExecute(
+        'SELECT locdate FROM holidays WHERE is_holiday = 1;'
+      );
+      const rows = result.rows?._array || [];
+      holidaySetCache = new Set<string>(rows.map((row: any) => String(row.locdate)));
     }
-    return false;
+    return holidaySetCache.has(dateStr);
   },
 };

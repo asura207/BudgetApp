@@ -8,16 +8,13 @@ import {
   DeviceEventEmitter,
 } from 'react-native';
 import dayjs from 'dayjs';
-import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import { useFocusEffect } from '@react-navigation/native';
 import { BarChart, LineChart } from 'react-native-gifted-charts';
 import { transactionDao } from '../database/transactionDao';
 import { recurringDao } from '../database/recurringDao';
-import { getRecurringOccurrencesForMonth } from '../utils/recurringUtils';
+import { getRecurringOccurrencesForMonth, RecurringOccurrence } from '../utils/recurringUtils';
 import { getNicknameCreatedAt, getManualInstallment, getMonthlyBudget } from '../storage/mmkv';
 import { RecurringRule, Transaction } from '../types/budget';
-
-dayjs.extend(isSameOrBefore);
 
 export const StatisticsScreen = () => {
   const nicknameCreatedAtStr = getNicknameCreatedAt();
@@ -26,15 +23,17 @@ export const StatisticsScreen = () => {
   const todayStr = dayjs().format('YYYY-MM-DD');
 
   // 닉네임 설정 연도를 시작 연도로 설정 (최소 startYear ~ 최대 5년 롤링 윈도우)
-  const rawYears: number[] = [];
-  for (
-    let y = Math.max(nicknameStartYear, currentYearNum - 4);
-    y <= Math.max(nicknameStartYear, currentYearNum);
-    y++
-  ) {
-    rawYears.push(y);
-  }
-  const availableYears = rawYears.length > 0 ? rawYears : [currentYearNum];
+  const availableYears = useMemo(() => {
+    const rawYears: number[] = [];
+    for (
+      let y = Math.max(nicknameStartYear, currentYearNum - 4);
+      y <= Math.max(nicknameStartYear, currentYearNum);
+      y++
+    ) {
+      rawYears.push(y);
+    }
+    return rawYears.length > 0 ? rawYears : [currentYearNum];
+  }, [nicknameStartYear, currentYearNum]);
   const minSelectableYear = availableYears[0];
   const maxSelectableYear = availableYears[availableYears.length - 1];
 
@@ -77,6 +76,15 @@ export const StatisticsScreen = () => {
     return () => sub.remove();
   }, [loadStatsData]);
 
+  // 선택된 연도의 1~12월 정기결제/적금 도래 내역을 1회만 산출하여 월간/카드사/적금 집계에서 재사용
+  const selectedYearOccurrencesByMonth = useMemo<RecurringOccurrence[][]>(() => {
+    return Array.from({ length: 12 }, (_, i) => {
+      const m = i + 1;
+      const monthPrefix = `${selectedYear}-${String(m).padStart(2, '0')}`;
+      return getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr);
+    });
+  }, [selectedYear, recurringRules, todayStr]);
+
   // 1~12월 각 월별 총 지출 및 적금 집계 (할부 분할액 & 공휴일/주말 이관 반영 정기결제)
   const monthlyExpenseData = useMemo(() => {
     return Array.from({ length: 12 }, (_, i) => {
@@ -96,16 +104,11 @@ export const StatisticsScreen = () => {
         }, 0);
 
       let savings = mtxs
-        .filter(
-          (tx) =>
-            tx.categoryType === 'SAVINGS' &&
-            dayjs(tx.date).isSameOrBefore(dayjs(todayStr), 'day')
-        )
+        .filter((tx) => tx.categoryType === 'SAVINGS' && tx.date <= todayStr)
         .reduce((sum, tx) => sum + tx.amount, 0);
 
-      // 2. 정기결제/적금 내역 반영 (실효일 기준 오늘 날짜 이하만 누적, 월말 이관 포함)
-      const occurrences = getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr);
-      occurrences.forEach(({ rule }) => {
+      // 2. 정기결제/적금 내역 반영 (사전 계산된 당해 연도 월별 도래 목록 재사용)
+      selectedYearOccurrencesByMonth[i].forEach(({ rule }) => {
         if (rule.categoryType === 'EXPENSE') {
           expense += rule.amount;
         } else if (rule.categoryType === 'SAVINGS') {
@@ -115,18 +118,20 @@ export const StatisticsScreen = () => {
 
       return { month: m, monthName: `${m}월`, expense, savings };
     });
-  }, [selectedYear, yearTransactions, recurringRules, todayStr]);
+  }, [selectedYear, yearTransactions, selectedYearOccurrencesByMonth, todayStr]);
 
   // 1~12월 월별 할부 청구금액 선 그래프(LineChart) 데이터 계산 (전월/전년도 시작 잔여 할부 + 수동 할부금)
   const lineChartData = useMemo(() => {
     return Array.from({ length: 12 }, (_, i) => {
       const m = i + 1;
       const monthPrefix = `${selectedYear}-${String(m).padStart(2, '0')}`;
-      const targetMoment = dayjs(`${monthPrefix}-01`, 'YYYY-MM-DD').startOf('month');
+      const targetYear = selectedYear;
+      const targetMonth = m;
 
       const autoInstallment = allInstallmentTxs.reduce((sum, tx) => {
-        const txMoment = dayjs(tx.date, 'YYYY-MM-DD').startOf('month');
-        const monthsElapsed = targetMoment.diff(txMoment, 'month');
+        const txYear = Number(tx.date.slice(0, 4));
+        const txMonth = Number(tx.date.slice(5, 7));
+        const monthsElapsed = (targetYear - txYear) * 12 + (targetMonth - txMonth);
         if (monthsElapsed >= 0 && monthsElapsed < tx.installmentMonths) {
           return sum + Math.round(tx.amount / tx.installmentMonths);
         }
@@ -141,19 +146,28 @@ export const StatisticsScreen = () => {
   }, [selectedYear, allInstallmentTxs, refreshTick]);
 
   // gifted-charts 차트 바 데이터 생성
-  const barData = monthlyExpenseData.map((d) => ({
-    value: d.expense / 10000, // 만원 단위 표기
-    label: d.monthName,
-    frontColor: '#2196F3',
-  }));
+  const barData = useMemo(
+    () =>
+      monthlyExpenseData.map((d) => ({
+        value: d.expense / 10000, // 만원 단위 표기
+        label: d.monthName,
+        frontColor: '#2196F3',
+      })),
+    [monthlyExpenseData]
+  );
 
-  const totalYearExpense = monthlyExpenseData.reduce((sum, d) => sum + d.expense, 0);
-  const totalYearSavings = monthlyExpenseData.reduce((sum, d) => sum + d.savings, 0);
+  const totalYearExpense = useMemo(
+    () => monthlyExpenseData.reduce((sum, d) => sum + d.expense, 0),
+    [monthlyExpenseData]
+  );
+  const totalYearSavings = useMemo(
+    () => monthlyExpenseData.reduce((sum, d) => sum + d.savings, 0),
+    [monthlyExpenseData]
+  );
 
-  // 선택된 월의 카드사별 지출 합계 집계 (오늘 날짜 이하 정기결제 포함)
-  const getCardCompanyStatsForMonth = (monthNum: number) => {
-    const monthPrefix = `${selectedYear}-${String(monthNum).padStart(2, '0')}`;
-    const daysInMonth = dayjs(monthPrefix, 'YYYY-MM').daysInMonth();
+  // 선택된 월의 카드사별 지출 합계 집계 (오늘 날짜 이하 정기결제 포함, 메모이제이션)
+  const monthCardStats = useMemo(() => {
+    const monthPrefix = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
     const monthTxs = yearTransactions.filter(
       (tx) => tx.date.startsWith(monthPrefix) && tx.categoryType === 'EXPENSE'
     );
@@ -175,8 +189,8 @@ export const StatisticsScreen = () => {
       totalMonthExpense += amountToUse;
     });
 
-    // 정기 결제 카드 지출 반영 (실효일 기준 오늘 이하 날짜만)
-    getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr).forEach(({ rule }) => {
+    const occurrences = selectedYearOccurrencesByMonth[selectedMonth - 1] || [];
+    occurrences.forEach(({ rule }) => {
       if (rule.categoryType === 'EXPENSE') {
         const companyName =
           rule.paymentType === 'CARD'
@@ -197,17 +211,16 @@ export const StatisticsScreen = () => {
     });
 
     return { list: result, totalMonthExpense };
-  };
+  }, [selectedYear, selectedMonth, yearTransactions, selectedYearOccurrencesByMonth]);
 
-  // 선택된 월의 적금/저축 합계 집계 (조회 당일 포함 이전 일의 기록만 합산)
-  const getSavingsStatsForMonth = (monthNum: number) => {
-    const monthPrefix = `${selectedYear}-${String(monthNum).padStart(2, '0')}`;
-    const daysInMonth = dayjs(monthPrefix, 'YYYY-MM').daysInMonth();
+  // 선택된 월의 적금/저축 합계 집계 (조회 당일 포함 이전 일의 기록만 합산, 메모이제이션)
+  const monthSavingsStats = useMemo(() => {
+    const monthPrefix = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
     const monthTxs = yearTransactions.filter(
       (tx) =>
         tx.date.startsWith(monthPrefix) &&
         tx.categoryType === 'SAVINGS' &&
-        dayjs(tx.date).isSameOrBefore(dayjs(todayStr), 'day')
+        tx.date <= todayStr
     );
 
     const savingsMap: { [name: string]: number } = {};
@@ -219,8 +232,8 @@ export const StatisticsScreen = () => {
       totalMonthSavings += tx.amount;
     });
 
-    // 정기 적금 내역 반영 (실효일 기준 오늘 이하 날짜만)
-    getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr).forEach(({ rule }) => {
+    const occurrences = selectedYearOccurrencesByMonth[selectedMonth - 1] || [];
+    occurrences.forEach(({ rule }) => {
       if (rule.categoryType === 'SAVINGS') {
         const name = rule.merchant || '정기 적금';
         savingsMap[name] = (savingsMap[name] || 0) + rule.amount;
@@ -238,12 +251,28 @@ export const StatisticsScreen = () => {
     });
 
     return { list: result, totalMonthSavings };
-  };
+  }, [selectedYear, selectedMonth, yearTransactions, selectedYearOccurrencesByMonth, todayStr]);
+
+  // 연도별 비교 탭이 활성화된 경우에만 다개년·연간 상세 집계를 지연 계산
+  const selectedYearTabTransactions = useMemo(() => {
+    if (activeTab !== 'YEARLY') return [];
+    if (selectedYearTab === selectedYear) return yearTransactions;
+    return transactionDao.getTransactionsByYear(String(selectedYearTab));
+  }, [activeTab, selectedYearTab, selectedYear, yearTransactions, refreshTick]);
+
+  const selectedYearTabOccurrencesByMonth = useMemo<RecurringOccurrence[][]>(() => {
+    if (activeTab !== 'YEARLY') return [];
+    if (selectedYearTab === selectedYear) return selectedYearOccurrencesByMonth;
+    return Array.from({ length: 12 }, (_, i) => {
+      const monthPrefix = `${selectedYearTab}-${String(i + 1).padStart(2, '0')}`;
+      return getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr);
+    });
+  }, [activeTab, selectedYearTab, selectedYear, selectedYearOccurrencesByMonth, recurringRules, todayStr]);
 
   // 선택된 연도의 카드사별 지출 합계 집계 (오늘 날짜 이하 정기결제 포함)
-  const getCardCompanyStatsForYear = (yearNum: number) => {
-    const txs = transactionDao.getTransactionsByYear(String(yearNum));
-    const expenseTxs = txs.filter((tx) => tx.categoryType === 'EXPENSE');
+  const yearCardStats = useMemo(() => {
+    if (activeTab !== 'YEARLY') return { list: [], totalExpense: 0 };
+    const expenseTxs = selectedYearTabTransactions.filter((tx) => tx.categoryType === 'EXPENSE');
 
     const companyMap: { [company: string]: number } = {};
     let totalExpense = 0;
@@ -261,10 +290,8 @@ export const StatisticsScreen = () => {
       totalExpense += amountToUse;
     });
 
-    // 정기 결제 카드 지출 반영 (실효일 기준 오늘 이하 날짜만)
-    for (let m = 1; m <= 12; m++) {
-      const monthPrefix = `${yearNum}-${String(m).padStart(2, '0')}`;
-      getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr).forEach(({ rule }) => {
+    selectedYearTabOccurrencesByMonth.forEach((monthOccurrences) => {
+      monthOccurrences.forEach(({ rule }) => {
         if (rule.categoryType === 'EXPENSE') {
           const companyName =
             rule.paymentType === 'CARD'
@@ -274,7 +301,7 @@ export const StatisticsScreen = () => {
           totalExpense += rule.amount;
         }
       });
-    }
+    });
 
     const result = Object.keys(companyMap).map((company) => {
       const amount = companyMap[company];
@@ -284,15 +311,13 @@ export const StatisticsScreen = () => {
     });
 
     return { list: result, totalExpense };
-  };
+  }, [activeTab, selectedYearTabTransactions, selectedYearTabOccurrencesByMonth]);
 
   // 선택된 연도의 적금/저축 합계 집계 (조회 당일 포함 이전 일의 기록만 합산)
-  const getSavingsStatsForYear = (yearNum: number) => {
-    const txs = transactionDao.getTransactionsByYear(String(yearNum));
-    const savingsTxs = txs.filter(
-      (tx) =>
-        tx.categoryType === 'SAVINGS' &&
-        dayjs(tx.date).isSameOrBefore(dayjs(todayStr), 'day')
+  const yearSavingsStats = useMemo(() => {
+    if (activeTab !== 'YEARLY') return { list: [], totalSavings: 0 };
+    const savingsTxs = selectedYearTabTransactions.filter(
+      (tx) => tx.categoryType === 'SAVINGS' && tx.date <= todayStr
     );
 
     const savingsMap: { [name: string]: number } = {};
@@ -304,17 +329,15 @@ export const StatisticsScreen = () => {
       totalSavings += tx.amount;
     });
 
-    // 정기 적금/저축 내역 반영 (실효일 기준 조회 당일 포함 이전 일의 기록만 합산)
-    for (let m = 1; m <= 12; m++) {
-      const monthPrefix = `${yearNum}-${String(m).padStart(2, '0')}`;
-      getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr).forEach(({ rule }) => {
+    selectedYearTabOccurrencesByMonth.forEach((monthOccurrences) => {
+      monthOccurrences.forEach(({ rule }) => {
         if (rule.categoryType === 'SAVINGS') {
           const name = rule.merchant || '정기 적금';
           savingsMap[name] = (savingsMap[name] || 0) + rule.amount;
           totalSavings += rule.amount;
         }
       });
-    }
+    });
 
     const result = Object.keys(savingsMap).map((name) => {
       const amount = savingsMap[name];
@@ -324,48 +347,72 @@ export const StatisticsScreen = () => {
     });
 
     return { list: result, totalSavings };
-  };
+  }, [activeTab, selectedYearTabTransactions, selectedYearTabOccurrencesByMonth, todayStr]);
 
-  // 연도별 비교 테이블용 데이터 (적금/저축 및 정기결제는 조회 당일 포함 이전 일의 기록만 합산)
-  const yearlyComparisonData = availableYears.map((y) => {
-    const txs = transactionDao.getTransactionsByYear(String(y));
-    let expense = txs
-      .filter((tx) => tx.categoryType === 'EXPENSE')
-      .reduce((sum, tx) => {
-        if (tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1) {
-          return sum + Math.round(tx.amount / tx.installmentMonths);
-        }
-        return sum + tx.amount;
-      }, 0);
+  // 연도별 비교 테이블용 데이터 (연도별 비교 탭에서만 계산)
+  const yearlyComparisonData = useMemo(() => {
+    if (activeTab !== 'YEARLY') return [];
+    return availableYears.map((y) => {
+      if (y === selectedYear) {
+        return {
+          year: `${y}년`,
+          yearNum: y,
+          expense: totalYearExpense,
+          savings: totalYearSavings,
+        };
+      }
 
-    let savings = txs
-      .filter(
-        (tx) =>
-          tx.categoryType === 'SAVINGS' &&
-          dayjs(tx.date).isSameOrBefore(dayjs(todayStr), 'day')
-      )
-      .reduce((sum, tx) => sum + tx.amount, 0);
+      const txs =
+        y === selectedYearTab
+          ? selectedYearTabTransactions
+          : transactionDao.getTransactionsByYear(String(y));
 
-    // 정기결제/적금 내역 반영 (실효일 기준 조회 당일 포함 이전 일만 누적)
-    for (let m = 1; m <= 12; m++) {
-      const monthPrefix = `${y}-${String(m).padStart(2, '0')}`;
-      getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr).forEach(({ rule }) => {
-        if (rule.categoryType === 'EXPENSE') {
-          expense += rule.amount;
-        } else if (rule.categoryType === 'SAVINGS') {
-          savings += rule.amount;
-        }
+      let expense = txs
+        .filter((tx) => tx.categoryType === 'EXPENSE')
+        .reduce((sum, tx) => {
+          if (tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1) {
+            return sum + Math.round(tx.amount / tx.installmentMonths);
+          }
+          return sum + tx.amount;
+        }, 0);
+
+      let savings = txs
+        .filter((tx) => tx.categoryType === 'SAVINGS' && tx.date <= todayStr)
+        .reduce((sum, tx) => sum + tx.amount, 0);
+
+      const occurrencesByMonth =
+        y === selectedYearTab
+          ? selectedYearTabOccurrencesByMonth
+          : Array.from({ length: 12 }, (_, i) => {
+              const monthPrefix = `${y}-${String(i + 1).padStart(2, '0')}`;
+              return getRecurringOccurrencesForMonth(recurringRules, monthPrefix, todayStr);
+            });
+
+      occurrencesByMonth.forEach((monthOccurrences) => {
+        monthOccurrences.forEach(({ rule }) => {
+          if (rule.categoryType === 'EXPENSE') {
+            expense += rule.amount;
+          } else if (rule.categoryType === 'SAVINGS') {
+            savings += rule.amount;
+          }
+        });
       });
-    }
 
-    return { year: `${y}년`, yearNum: y, expense, savings };
-  });
-
-  const monthCardStats = getCardCompanyStatsForMonth(selectedMonth);
-  const monthSavingsStats = getSavingsStatsForMonth(selectedMonth);
-
-  const yearCardStats = getCardCompanyStatsForYear(selectedYearTab);
-  const yearSavingsStats = getSavingsStatsForYear(selectedYearTab);
+      return { year: `${y}년`, yearNum: y, expense, savings };
+    });
+  }, [
+    activeTab,
+    availableYears,
+    selectedYear,
+    selectedYearTab,
+    totalYearExpense,
+    totalYearSavings,
+    selectedYearTabTransactions,
+    selectedYearTabOccurrencesByMonth,
+    recurringRules,
+    todayStr,
+    refreshTick,
+  ]);
 
   // 월별 예산, 사용 금액, 잔액 계산
   const monthPrefix = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
