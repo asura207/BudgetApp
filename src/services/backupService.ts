@@ -23,7 +23,7 @@ import CryptoJS from 'crypto-js';
 
 const { SmsHistoryParserModule } = NativeModules;
 const BUGET_API_KEY = 'bgk_8LrxkgUuYJqGAnM3EXOkgBVif76aJ3ZUD6dM6QYJSCo';
-const BUGET_HMAC_SECRET = 'buget123$%^';
+const BUGET_HMAC_SECRET = '6a4d917b5733100ff1cefdfa00aa0b17d59799a1420e5b0f15eddfc2d03e098e';
 const API_BASE_URL = 'http://218.234.55.78:8000';
 
 /**
