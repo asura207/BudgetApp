@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StatusBar, StyleSheet, AppState, AppStateStatus, DeviceEventEmitter } from 'react-native';
+import { StatusBar, StyleSheet, AppState, AppStateStatus, DeviceEventEmitter, InteractionManager } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { subscribeNativePaymentEvents, syncMissedBackgroundEvents } from './src/services/nativeParserBridge';
@@ -10,23 +10,25 @@ import { holidayService } from './src/services/holidayService';
 
 const App = () => {
   useEffect(() => {
-    // 0. SQLite 스키마 보장, 공휴일 시드 초기화, 백그라운드 유실 이벤트 점검 및 자동 백업 실행
-    try {
-      initDatabase();
-    } catch (e) {
-      console.warn('initDatabase error:', e);
-    }
+    // 0. SQLite 스키마 보장, 공휴일 시드 초기화, 백그라운드 유실 이벤트 점검 및 자동 백업 실행 (UI 렌더링 후 지연 실행)
+    InteractionManager.runAfterInteractions(() => {
+      try {
+        initDatabase();
+      } catch (e) {
+        console.warn('initDatabase error:', e);
+      }
 
-    holidayService
-      .ensureHolidaysInitialized()
-      .then(() => DeviceEventEmitter.emit('TRANSACTION_UPDATED'))
-      .catch((e) => console.warn('ensureHolidaysInitialized error:', e));
+      holidayService
+        .ensureHolidaysInitialized()
+        .then(() => DeviceEventEmitter.emit('TRANSACTION_UPDATED'))
+        .catch((e) => console.warn('ensureHolidaysInitialized error:', e));
 
-    syncMissedBackgroundEvents()
-      .then(() => DeviceEventEmitter.emit('TRANSACTION_UPDATED'))
-      .catch((e) => console.warn('syncMissedBackgroundEvents error:', e));
+      syncMissedBackgroundEvents()
+        .then(() => DeviceEventEmitter.emit('TRANSACTION_UPDATED'))
+        .catch((e) => console.warn('syncMissedBackgroundEvents error:', e));
 
-    backupService.runDailyAutoBackup();
+      backupService.runDailyAutoBackup();
+    });
 
     // 1. 네이티브 자동 파싱 결제 이벤트 구독
     const subscription = subscribeNativePaymentEvents((tx) => {
@@ -36,21 +38,23 @@ const App = () => {
     // 2. 앱이 백그라운드에서 다음날(익일) 포그라운드로 복귀할 때 상태 자동 갱신 및 DB 연결 복구
     const appStateSub = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active') {
-        try {
-          // DB C++ 핸들 유효성 점검 및 필요시 자동 재오픈
-          getDb();
+        InteractionManager.runAfterInteractions(() => {
+          try {
+            // DB C++ 핸들 유효성 점검 및 필요시 자동 재오픈
+            getDb();
 
-          // 백그라운드에서 유실된 푸시/문자 결제건 완벽 복구
-          syncMissedBackgroundEvents().then(() => {
-            // 화면의 날짜 및 계산 상태 실시간 재로드 트리거
-            DeviceEventEmitter.emit('TRANSACTION_UPDATED');
-          });
+            // 백그라운드에서 유실된 푸시/문자 결제건 완벽 복구
+            syncMissedBackgroundEvents().then(() => {
+              // 화면의 날짜 및 계산 상태 실시간 재로드 트리거
+              DeviceEventEmitter.emit('TRANSACTION_UPDATED');
+            });
 
-          // 복귀 시 일일 백업 체크
-          backupService.runDailyAutoBackup();
-        } catch (e) {
-          console.warn('AppState foreground resume error:', e);
-        }
+            // 복귀 시 일일 백업 체크
+            backupService.runDailyAutoBackup();
+          } catch (e) {
+            console.warn('AppState foreground resume error:', e);
+          }
+        });
       }
     });
 

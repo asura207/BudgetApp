@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, ScrollView, Pressable, TextInput, Alert, DeviceEventEmitter, PanResponder } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity, ScrollView, Pressable, TextInput, Alert, DeviceEventEmitter, PanResponder, InteractionManager } from 'react-native';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { useFocusEffect } from '@react-navigation/native';
 import dayjs from 'dayjs';
@@ -349,7 +349,11 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
   // 화면 활성화(포커스) 및 거래/정기결제 변경 이벤트 발생 시 실시간 자동 재로드
   useFocusEffect(
     useCallback(() => {
-      loadCalendarData();
+      // 렌더링 블로킹 방지를 위해 화면 전환 후 달력 데이터 로드
+      const task = InteractionManager.runAfterInteractions(() => {
+        loadCalendarData();
+      });
+      return () => task.cancel();
     }, [loadCalendarData])
   );
 
@@ -404,15 +408,9 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
     return amt.toLocaleString();
   };
 
-  // 커스텀 날짜 셀 렌더링 (월간 뷰용) - 지출은 상단(1줄), 적금은 하단(2줄) 위치 고정
-  const customDayComponent = ({ date, state }: any) => {
+  const MemoizedDayComponent = React.memo(({ date, state, isRed, expenseAmount, savingsAmount, color, isToday, onSelectDate }: any) => {
     if (!date) return null;
     const dateStr = date.dateString;
-    const isRed = isRedDay(dateStr);
-    const expenseAmount = dailyExpenseTotals[dateStr] || 0;
-    const savingsAmount = dailySavingsTotals[dateStr] || 0;
-    const color = getBudgetStatusColor(expenseAmount, dailyBudget);
-    const isToday = dateStr === dayjs().format('YYYY-MM-DD');
 
     return (
       <TouchableOpacity
@@ -463,7 +461,40 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
         </View>
       </TouchableOpacity>
     );
-  };
+  }, (prev, next) => {
+    // 리렌더링 최적화 로직: 금액이나 상태가 같으면 재렌더링 차단
+    return (
+      prev.date?.dateString === next.date?.dateString &&
+      prev.state === next.state &&
+      prev.expenseAmount === next.expenseAmount &&
+      prev.savingsAmount === next.savingsAmount &&
+      prev.color === next.color
+    );
+  });
+
+  // 커스텀 날짜 셀 렌더링 (월간 뷰용) - 지출은 상단(1줄), 적금은 하단(2줄) 위치 고정
+  const customDayComponent = useCallback(({ date, state }: any) => {
+    if (!date) return null;
+    const dateStr = date.dateString;
+    const isRed = isRedDay(dateStr);
+    const expenseAmount = dailyExpenseTotals[dateStr] || 0;
+    const savingsAmount = dailySavingsTotals[dateStr] || 0;
+    const color = getBudgetStatusColor(expenseAmount, dailyBudget);
+    const isToday = dateStr === dayjs().format('YYYY-MM-DD');
+
+    return (
+      <MemoizedDayComponent
+        date={date}
+        state={state}
+        isRed={isRed}
+        expenseAmount={expenseAmount}
+        savingsAmount={savingsAmount}
+        color={color}
+        isToday={isToday}
+        onSelectDate={onSelectDate}
+      />
+    );
+  }, [dailyExpenseTotals, dailySavingsTotals, dailyBudget, onSelectDate]);
 
   const daysOfWeekNames = ['월', '화', '수', '목', '금', '토', '일'];
 
