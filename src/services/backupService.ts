@@ -19,8 +19,11 @@ import { parseExceptionDao } from '../database/parseExceptionDao';
 import { appNotificationDao, AppNotificationRaw } from '../database/appNotificationDao';
 import { Transaction, RecurringRule, Holiday } from '../types/budget';
 import { getDb, safeDbExecute } from '../database/db';
+import CryptoJS from 'crypto-js';
 
 const { SmsHistoryParserModule } = NativeModules;
+const BUGET_API_KEY = 'bgk_8LrxkgUuYJqGAnM3EXOkgBVif76aJ3ZUD6dM6QYJSCo';
+const BUGET_HMAC_SECRET = 'buget123$%^'; // 임시(테스트용)로 작성함. 필요시 프롬프트에 제공된 시크릿 키값으로 교체 가능
 
 export interface BudgetAppBackupData {
   version: number;
@@ -157,10 +160,27 @@ export const backupService = {
       const jsonString = this.generateBackupJson();
       const backupData = JSON.parse(jsonString);
 
-      const res = await fetch(`http://218.234.55.78:8000/api/backup/${encodeURIComponent(userKey)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(backupData),
+      const method = 'POST';
+      const pathWithQuery = `/api/backup/${encodeURIComponent(userKey)}`;
+      const timestampStr = Math.floor(Date.now() / 1000).toString();
+      const nonceStr = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+
+      const rawBodyString = JSON.stringify(backupData);
+      const sha256Hex = CryptoJS.SHA256(rawBodyString).toString(CryptoJS.enc.Hex).toLowerCase();
+
+      const messageToSign = `${method}\n${pathWithQuery}\n${timestampStr}\n${nonceStr}\n${sha256Hex}`;
+      const signature = CryptoJS.HmacSHA256(messageToSign, BUGET_HMAC_SECRET).toString(CryptoJS.enc.Hex).toLowerCase();
+
+      const res = await fetch(`http://218.234.55.78:8000${pathWithQuery}`, {
+        method: method,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': BUGET_API_KEY,
+          'X-Timestamp': timestampStr,
+          'X-Nonce': nonceStr,
+          'X-Signature': signature,
+        },
+        body: rawBodyString,
       });
       const result = await res.json();
       if (!res.ok) {
@@ -175,9 +195,27 @@ export const backupService = {
   async restoreFromRemoteDb(inputUserKey?: string): Promise<{ success: boolean; message: string }> {
     try {
       const userKey = inputUserKey || require('../storage/userKeyService').getUserKey();
-      const res = await fetch(`http://218.234.55.78:8000/api/restore/${encodeURIComponent(userKey)}`, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
+
+      const method = 'GET';
+      const pathWithQuery = `/api/restore/${encodeURIComponent(userKey)}`;
+      const timestampStr = Math.floor(Date.now() / 1000).toString();
+      const nonceStr = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+
+      // GET 요청 등 본문이 없으면 빈 문자열 ""의 SHA-256 해시를 생성
+      const sha256Hex = CryptoJS.SHA256("").toString(CryptoJS.enc.Hex).toLowerCase();
+
+      const messageToSign = `${method}\n${pathWithQuery}\n${timestampStr}\n${nonceStr}\n${sha256Hex}`;
+      const signature = CryptoJS.HmacSHA256(messageToSign, BUGET_HMAC_SECRET).toString(CryptoJS.enc.Hex).toLowerCase();
+
+      const res = await fetch(`http://218.234.55.78:8000${pathWithQuery}`, {
+        method: method,
+        headers: {
+          'Accept': 'application/json',
+          'X-API-Key': BUGET_API_KEY,
+          'X-Timestamp': timestampStr,
+          'X-Nonce': nonceStr,
+          'X-Signature': signature,
+        },
       });
       const result = await res.json();
       if (!res.ok) {
