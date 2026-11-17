@@ -18,12 +18,78 @@ import { holidayDao } from '../database/holidayDao';
 import { parseExceptionDao } from '../database/parseExceptionDao';
 import { appNotificationDao, AppNotificationRaw } from '../database/appNotificationDao';
 import { Transaction, RecurringRule, Holiday } from '../types/budget';
-import { getDb, safeDbExecute } from '../database/db';
+import { safeDbExecute } from '../database/db';
 import CryptoJS from 'crypto-js';
 
 const { SmsHistoryParserModule } = NativeModules;
 const BUGET_API_KEY = 'bgk_8LrxkgUuYJqGAnM3EXOkgBVif76aJ3ZUD6dM6QYJSCo';
-const BUGET_HMAC_SECRET = 'buget123$%^'; // 임시(테스트용)로 작성함. 필요시 프롬프트에 제공된 시크릿 키값으로 교체 가능
+const BUGET_HMAC_SECRET = 'buget123$%^';
+const API_BASE_URL = 'http://218.234.55.78:8000';
+
+/**
+ * 16바이트(32자리 hex) 고유 Nonce 생성
+ */
+const generateHexNonce32 = (): string => {
+  const bytes = new Uint8Array(16);
+  const cryptoObj = (globalThis as any)?.crypto;
+  if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
+    cryptoObj.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < 16; i++) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+};
+
+/**
+ * strict 모드 (API Key + HMAC-SHA256) 인증 헤더 생성
+ */
+const buildStrictAuthHeaders = (
+  method: 'GET' | 'POST',
+  pathWithQuery: string,
+  rawBodyString: string = ''
+): Record<string, string> => {
+  const timestampStr = Math.floor(Date.now() / 1000).toString();
+  const nonceStr = generateHexNonce32();
+  const sha256Hex = CryptoJS.SHA256(rawBodyString).toString(CryptoJS.enc.Hex).toLowerCase();
+  const messageToSign = `${method}\n${pathWithQuery}\n${timestampStr}\n${nonceStr}\n${sha256Hex}`;
+  const signature = CryptoJS.HmacSHA256(messageToSign, BUGET_HMAC_SECRET)
+    .toString(CryptoJS.enc.Hex)
+    .toLowerCase();
+
+  return {
+    'X-API-Key': BUGET_API_KEY,
+    'X-Timestamp': timestampStr,
+    'X-Nonce': nonceStr,
+    'X-Signature': signature,
+  };
+};
+
+/**
+ * 원격 DB HTTP 요청 타임아웃 래퍼 (기본 10초)
+ */
+const fetchWithTimeout = async (
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = 10000
+): Promise<Response> => {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timerId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    return await fetch(url, {
+      ...options,
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+  } catch (e: any) {
+    if (e?.name === 'AbortError') {
+      throw new Error('원격 서버 응답 시간이 초과되었습니다.');
+    }
+    throw e;
+  } finally {
+    if (timerId !== null) clearTimeout(timerId);
+  }
+};
 
 export interface BudgetAppBackupData {
   version: number;
@@ -117,11 +183,11 @@ export const backupService = {
         const savedPath = await SmsHistoryParserModule.saveBackupFileToDownload(jsonString, fileName, isDailyAutoBackup);
         return { success: true, fileName, filePath: savedPath };
       } catch (e) {
-        // Fallback
+        return { success: false, fileName, filePath: '' };
       }
     }
 
-    return { success: true, fileName, filePath: `Download/${fileName}` };
+    return { success: false, fileName, filePath: '' };
   },
 
   async runDailyAutoBackup(): Promise<void> {
@@ -135,7 +201,10 @@ export const backupService = {
       }
 
       // 1. 로컬 파일 백업 (기존 파일 삭제)
-      await this.exportBackupToFile(true);
+      const localResult = await this.exportBackupToFile(true);
+      if (!localResult.success) {
+        console.warn('Daily auto local backup skipped/failed');
+      }
 
       // 2. 원격 DB 백업 (설정에서 활성화된 경우에만 실행)
       const { getRemoteDbSyncEnabled } = require('../storage/mmkv');
@@ -145,7 +214,7 @@ export const backupService = {
           storage.set('last_daily_backup_date', todayStr);
           console.log('✅ 매일 1회 원격 및 로컬 파일 백업 완료');
         }
-      } else {
+      } else if (localResult.success) {
         storage.set('last_daily_backup_date', todayStr);
         console.log('✅ 매일 1회 로컬 파일 백업 완료 (원격 DB 미활성화)');
       }
@@ -160,25 +229,15 @@ export const backupService = {
       const jsonString = this.generateBackupJson();
       const backupData = JSON.parse(jsonString);
 
-      const method = 'POST';
+      const method = 'POST' as const;
       const pathWithQuery = `/api/backup/${encodeURIComponent(userKey)}`;
-      const timestampStr = Math.floor(Date.now() / 1000).toString();
-      const nonceStr = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-
       const rawBodyString = JSON.stringify(backupData);
-      const sha256Hex = CryptoJS.SHA256(rawBodyString).toString(CryptoJS.enc.Hex).toLowerCase();
 
-      const messageToSign = `${method}\n${pathWithQuery}\n${timestampStr}\n${nonceStr}\n${sha256Hex}`;
-      const signature = CryptoJS.HmacSHA256(messageToSign, BUGET_HMAC_SECRET).toString(CryptoJS.enc.Hex).toLowerCase();
-
-      const res = await fetch(`http://218.234.55.78:8000${pathWithQuery}`, {
-        method: method,
+      const res = await fetchWithTimeout(`${API_BASE_URL}${pathWithQuery}`, {
+        method,
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': BUGET_API_KEY,
-          'X-Timestamp': timestampStr,
-          'X-Nonce': nonceStr,
-          'X-Signature': signature,
+          ...buildStrictAuthHeaders(method, pathWithQuery, rawBodyString),
         },
         body: rawBodyString,
       });
@@ -196,25 +255,15 @@ export const backupService = {
     try {
       const userKey = inputUserKey || require('../storage/userKeyService').getUserKey();
 
-      const method = 'GET';
+      const method = 'GET' as const;
       const pathWithQuery = `/api/restore/${encodeURIComponent(userKey)}`;
-      const timestampStr = Math.floor(Date.now() / 1000).toString();
-      const nonceStr = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
       // GET 요청 등 본문이 없으면 빈 문자열 ""의 SHA-256 해시를 생성
-      const sha256Hex = CryptoJS.SHA256("").toString(CryptoJS.enc.Hex).toLowerCase();
-
-      const messageToSign = `${method}\n${pathWithQuery}\n${timestampStr}\n${nonceStr}\n${sha256Hex}`;
-      const signature = CryptoJS.HmacSHA256(messageToSign, BUGET_HMAC_SECRET).toString(CryptoJS.enc.Hex).toLowerCase();
-
-      const res = await fetch(`http://218.234.55.78:8000${pathWithQuery}`, {
-        method: method,
+      const res = await fetchWithTimeout(`${API_BASE_URL}${pathWithQuery}`, {
+        method,
         headers: {
-          'Accept': 'application/json',
-          'X-API-Key': BUGET_API_KEY,
-          'X-Timestamp': timestampStr,
-          'X-Nonce': nonceStr,
-          'X-Signature': signature,
+          Accept: 'application/json',
+          ...buildStrictAuthHeaders(method, pathWithQuery, ''),
         },
       });
       const result = await res.json();
@@ -266,9 +315,14 @@ export const backupService = {
 
       // 2. 파싱 예외 단어 먼저 복구 (네이버페이는 applySms가 false이므로 문자는 허용)
       if (Array.isArray(data.parseExceptions)) {
-        data.parseExceptions.forEach((ex) => {
+        data.parseExceptions.forEach((ex: any) => {
           try {
-            parseExceptionDao.insertException(ex.keyword, ex.applyPush, ex.applySms);
+            const kw = ex.keyword;
+            const applyPush = ex.applyPush ?? ex.apply_push ?? true;
+            const applySms = ex.applySms ?? ex.apply_sms ?? true;
+            if (kw) {
+              parseExceptionDao.insertException(kw, Boolean(applyPush), Boolean(applySms));
+            }
           } catch (e) {
             // Ignore
           }
@@ -319,7 +373,7 @@ export const backupService = {
 
             // 이미 동일한 ID 또는 동일한 내용의 알림이 DB에 먼저 수록되어 있던 경우에도 백업본의 영구보관 체크 상태를 그대로 반영
             if (isBookmarkedVal === 1) {
-              db.execute(
+              safeDbExecute(
                 'UPDATE app_notifications_raw SET is_bookmarked = 1 WHERE id = ? OR (package_name = ? AND post_time = ? AND raw_content = ?);',
                 [notifId, pkgName, postTimeStr, rawContentStr]
               );

@@ -223,5 +223,8 @@
 - **매일 1회 원격 자동 백업 및 로컬 파일 교체(Rotation) 기능**:
   - `isDailyAutoBackup=true` 호출 시 `Download` 폴더에 쌓인 과거 `backup_*.txt`를 자동 삭제 후 오늘의 파일 1개만 생성.
   - 앱 설정에서 [원격 DB 자동 백업]이 켜져있을 경우 백그라운드에서 매일 최초 실행 1회 동작.
+- **원격 DB 백업/복구 strict 보안 인증(API Key + HMAC-SHA256) 및 안정성 보완**:
+  - `backupService.ts`: `/api/backup/...` 및 `/api/restore/...` 요청 공통 헬퍼(`buildStrictAuthHeaders`, `generateHexNonce32`)를 통해 16바이트(32자리 hex) `X-Nonce`, `X-Timestamp`, `X-API-Key`, `HMAC-SHA256` `X-Signature` 헤더를 생성·전송하고 `fetchWithTimeout`(10초) 적용.
+  - `restoreFromBackupJson` 내 영구보관 알림 갱신 시 `db.execute` 미선언 오류를 `safeDbExecute`로 수정하고 `parseExceptions` snake_case 폴백 및 로컬 파일 저장 실패 처리 보완.
 - **원격 백업 고유 키(`userKey`) 입력 및 영구 유지**:
   - 설치 후 최초 온보딩의 `원격 DB에서 복원` 화면에서 6자리 코드를 입력하여 복원하면, 랜덤 생성되었던 키를 버리고 해당 입력 키를 기기에 영구 유지(덮어쓰기)하도록 수정.
