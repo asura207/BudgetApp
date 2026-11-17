@@ -25,7 +25,17 @@ function getEnvironmentConfig(targetEnv) {
   return { envKey, envConfig };
 }
 
+function ensureAppSecretsFile() {
+  const secretsPath = path.resolve(__dirname, '../app.secrets.json');
+  const examplePath = path.resolve(__dirname, '../app.secrets.example.json');
+  if (!fs.existsSync(secretsPath) && fs.existsSync(examplePath)) {
+    fs.copyFileSync(examplePath, secretsPath);
+    console.warn('⚠️ app.secrets.json이 없어 app.secrets.example.json을 복사했습니다. 실제 API 키/서버 주소를 입력해 주세요.');
+  }
+}
+
 function setupLocalProperties(envKey, envConfig) {
+  ensureAppSecretsFile();
   const androidDir = path.resolve(__dirname, '../android');
   if (!fs.existsSync(androidDir)) {
     fs.mkdirSync(androidDir, { recursive: true });
@@ -54,4 +64,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { getEnvironmentConfig, setupLocalProperties };
+module.exports = { getEnvironmentConfig, setupLocalProperties, ensureAppSecretsFile };

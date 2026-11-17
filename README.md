@@ -39,20 +39,25 @@
 이 프로젝트는 안드로이드 전용(Android Standalone)으로 구성되어 있습니다.
 
 ### 1. 사전 요구사항 (Prerequisites)
+
 - [Node.js](https://nodejs.org/) (v18 이상 권장)
 - [Java Development Kit (JDK)](https://adoptium.net/) 17
 - [Android Studio](https://developer.android.com/studio) 및 Android SDK (API 34 권장)
 - 안드로이드 환경 변수(`ANDROID_HOME`, `JAVA_HOME`) 설정 완료
 
 ### 2. 패키지 설치
+
 프로젝트 루트 디렉토리에서 아래 명령어를 실행하여 의존성 패키지를 설치합니다.
 (피어 디펜던시 충돌을 방지하기 위해 `--legacy-peer-deps` 옵션 사용 권장)
+
 ```bash
 npm install --legacy-peer-deps
 ```
 
 ### 3. 안드로이드 디바이스 연결 및 실행
+
 안드로이드 물리 기기를 USB로 연결하거나, Android 에뮬레이터를 실행한 후 아래 명령어를 입력합니다.
+
 ```bash
 npx react-native run-android
 ```
@@ -60,6 +65,7 @@ npx react-native run-android
 > **주의**: 앱 푸시 알림 수집 기능(`NotificationListenerService`)은 물리 기기에서 '알림 접근 허용' 권한을 활성화해야 정상 작동합니다.
 
 ### 4. 📲 안드로이드 기기에 바로 설치하기 (APK)
+
 PC 개발 환경(Node, Android Studio 등)을 구축하기 번거롭다면, 본 저장소에 미리 빌드되어 준비된 완성본 설치 파일을 다운로드하여 스마트폰에 직접 설치하실 수 있습니다.
 
 - **APK 다운로드 위치**: [install/app-release.apk](./install/app-release.apk)
@@ -77,31 +83,37 @@ PC 개발 환경(Node, Android Studio 등)을 구축하기 번거롭다면, 본 
 프로젝트 루트에는 빌드 자동화 스크립트(`scripts/run-build.js`)가 내장되어 있습니다.
 
 **Release 키스토어 정보 (내장됨)**
+
 - 위치: `android/app/my-release-key.keystore`
 - Key Alias: `my-key-alias`
 - Key Password / Store Password: `!dnjstjq83`
 
 **Windows 환경 빌드 명령어**
+
 ```bash
 node scripts/run-build.js window assembleRelease
 ```
+
 **Mac/Linux 환경 빌드 명령어**
+
 ```bash
 node scripts/run-build.js mac assembleRelease
 ```
+
 빌드가 완료되면 아래 경로에 `.apk` 파일이 생성됩니다.
 ➔ `android/app/build/outputs/apk/release/app-release.apk`
 
 ---
 
-## 🌐 원격 DB(PostgreSQL) 연동 설정 
+## 🌐 원격 DB(PostgreSQL) 연동 설정
 
 앱은 기기 자체 로컬 DB(SQLite)만으로도 100% 동작하지만, 휴대폰 분실 및 기기 변경에 대비해 원격 DB 동기화를 지원합니다.
 
-1. **백엔드 서버 기동**: 
+1. **백엔드 서버 기동**:
    루트 디렉토리의 `prompt_backend.md` 파일에 정의된 명세에 따라 **Python FastAPI 백엔드 서버**를 구동해야 합니다.
-2. **API 엔드포인트 수정**:
-   `src/services/backupService.ts` 내의 `fetch` URL을 실제 백엔드가 구동 중인 서버 IP 및 포트(예: `http://218.234.55.78:8000`)로 맞춰주세요. (CORS 허용 필수)
+2. **외부 API 키 및 엔드포인트 설정 (`app.secrets.json`)**:
+   - 보안 키(`BUGET_API_KEY`, `BUGET_HMAC_SECRET`, `HOLIDAY_API_KEY`)와 원격 서버 주소(`API_BASE_URL`)는 Git에 커밋되지 않는 루트 경로의 `app.secrets.json`에서 읽어옵니다.
+   - 최초 클론 시 `app.secrets.example.json`을 `app.secrets.json`으로 복사한 뒤 실제 서버 IP/포트(예: `http://192.168.0.1:8000`) 및 인증 키 값을 입력해 주세요. (`.gitignore`에 등록되어 있어 커밋 대상에서 제외됩니다.)
 3. **앱 내 방화벽 해제**:
    `android/app/src/main/AndroidManifest.xml`에 `<application android:usesCleartextTraffic="true">`가 선언되어 있어 HTTP 통신이 가능합니다.
 

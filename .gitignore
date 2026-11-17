@@ -19,3 +19,9 @@ android/local.properties
 # Temporary files
 *.log
 .DS_Store
+
+# External secrets & environment config (never commit real keys)
+app.secrets.json
+.env
+.env.*
+!.env.example

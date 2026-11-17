@@ -3,10 +3,9 @@ import { holidayDao } from '../database/holidayDao';
 import { getFallbackHolidaysForYear } from '../utils/fallbackHolidays';
 import { getLastHolidaySync, setLastHolidaySync } from '../storage/mmkv';
 import { Holiday } from '../types/budget';
+import { APP_SECRETS } from '../config/appSecrets';
 
 const PUBLIC_HOLIDAY_API = 'https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo';
-// 서비스 키 (필요시 대체 가능하도록 설정)
-const API_KEY = 'bf09ccab001ebac6d639311400710826a9c70ba4f7deff2a5f671a99dfce9335';
 
 export const holidayService = {
   seedFallbackHolidays(year: number = dayjs().year()): void {
@@ -17,7 +16,13 @@ export const holidayService = {
 
   async syncHolidays(year: number): Promise<boolean> {
     try {
-      const url = `${PUBLIC_HOLIDAY_API}?solYear=${year}&ServiceKey=${API_KEY}&_type=json&numOfRows=100`;
+      const apiKey = APP_SECRETS.HOLIDAY_API_KEY;
+      if (!apiKey || apiKey.startsWith('YOUR_')) {
+        console.warn('⚠️ HOLIDAY_API_KEY가 app.secrets.json에 설정되지 않아 내장 공휴일 폴백을 사용합니다.');
+        this.seedFallbackHolidays(year);
+        return false;
+      }
+      const url = `${PUBLIC_HOLIDAY_API}?solYear=${year}&ServiceKey=${apiKey}&_type=json&numOfRows=100`;
       const response = await fetch(url, { method: 'GET' });
 
       if (!response.ok) {
