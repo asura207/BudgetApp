@@ -25,3 +25,4 @@ app.secrets.json
 .env
 .env.*
 !.env.example
+android/app/src/main/assets/index.android.bundle
