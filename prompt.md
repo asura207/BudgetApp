@@ -233,3 +233,6 @@
   - `holidayDao.ts`: `isHoliday()` 조회를 매 호출 동기 SQL 쿼리에서 인메모리 `Set<string>` 캐시 기반 O(1) 조회로 개선하고 `upsertHoliday`/`deleteCustomHoliday`/`updateCustomHoliday` 시 캐시 자동 무효화.
   - `dateUtils.ts`, `recurringUtils.ts`: 루프 내 다중 `dayjs()` 객체 할당/포맷을 `Date.UTC` 및 `YYYY-MM-DD` 문자열 연산으로 대체하고, 동일 날짜 영업일 이관 결과 캐싱 및 스캔 구간 날짜 메타 1회 생성 적용.
   - `StatisticsScreen.tsx`: 당해 연도 1~12월 정기결제 도래 내역을 `selectedYearOccurrencesByMonth`로 1회 통합 계산하고 `monthCardStats`/`monthSavingsStats`에 `useMemo` 적용, `연도별 비교` 탭(`yearCardStats`, `yearSavingsStats`, `yearlyComparisonData`)은 해당 탭 활성화 시에만 지연 계산·메모이제이션.
+- **매주 특정 요일(토요일 등) 및 매일 반복 정기결제 달력 미표시 버그 수정**:
+  - `recurringUtils.ts`: `WEEKLY_DAYS`(매주 토요일 등)와 `DAILY` 지출 규칙까지 `getNextBusinessDay()`로 영업일 이관되어 모든 토요일 결제건이 월요일로 밀려 토요일 달력 셀에서 사라지던 문제를 수정. `MONTHLY_DAY` 지출만 영업일 이관을 유지하고 `WEEKLY_DAYS`/`DAILY`는 지정한 요일/날짜에 그대로 표시되도록 개선 (`daysOfWeek` 숫자 정규화 및 `startDate` 10자리 날짜 정규화 포함).
+  - `RecurringRuleModal.tsx`: 특정 요일 선택 시 주말/공휴일 이관 없이 해당 요일에 그대로 반영됨을 안내 문구로 명시.

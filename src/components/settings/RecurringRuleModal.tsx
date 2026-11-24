@@ -324,6 +324,11 @@ export const RecurringRuleModal: React.FC<RecurringRuleModalProps> = ({
                     );
                   })}
                 </View>
+                <View style={styles.dailyNoticeBox}>
+                  <Text style={styles.dailyNoticeText}>
+                    ※ 선택한 요일(토·일 포함)은 주말/공휴일 이관 없이 해당 요일에 그대로 표시됩니다.
+                  </Text>
+                </View>
               </View>
             )}
 

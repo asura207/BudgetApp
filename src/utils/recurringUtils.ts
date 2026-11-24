@@ -53,11 +53,16 @@ export const getRecurringOccurrencesForMonth = (
 
   for (let rIdx = 0; rIdx < rules.length; rIdx++) {
     const rule = rules[rIdx];
-    const ruleStartStr = rule.startDate || rule.createdAt?.slice(0, 10) || `${yearMonth}-01`;
+    const ruleStartStr = (rule.startDate || rule.createdAt || `${yearMonth}-01`).slice(0, 10);
     const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
-    const isExpense = rule.categoryType === 'EXPENSE';
+    // 매월 지정일(MONTHLY_DAY) 지출만 비영업일(주말/공휴일) 시 다음 영업일로 이관
+    // 특정 요일(WEEKLY_DAYS: 매주 토요일 등)과 매일 반복(DAILY)은 사용자가 지정한 요일/날짜에 그대로 표시
+    const shouldRolloverToBusinessDay =
+      rule.categoryType === 'EXPENSE' && repeatType === 'MONTHLY_DAY';
     const daysOfWeekSet =
-      repeatType === 'WEEKLY_DAYS' ? new Set(rule.daysOfWeek || []) : null;
+      repeatType === 'WEEKLY_DAYS'
+        ? new Set((rule.daysOfWeek || []).map((d) => Number(d)))
+        : null;
 
     for (let dIdx = 0; dIdx < calendarDays.length; dIdx++) {
       const { rawDate, dayOfMonth, dayOfWeek } = calendarDays[dIdx];
@@ -75,7 +80,7 @@ export const getRecurringOccurrencesForMonth = (
       if (!applies) continue;
 
       let effectiveDate = rawDate;
-      if (isExpense) {
+      if (shouldRolloverToBusinessDay) {
         effectiveDate = expenseEffectiveCache[rawDate];
         if (!effectiveDate) {
           effectiveDate = getNextBusinessDay(rawDate, 'EXPENSE');
